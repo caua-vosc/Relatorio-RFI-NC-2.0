@@ -1,32 +1,30 @@
-let db;
-const request = indexedDB.open("ChecklistDB",1);
-request.onupgradeneeded = e => {
-    db = e.target.result;
-    if(!db.objectStoreNames.contains("relatorios"))
-        db.createObjectStore("relatorios",{keyPath:"siteId"});
-};
-request.onsuccess = e => { db = e.target.result; enviarOffline(); };
-request.onerror = e => console.error("IndexedDB erro",e);
+const DB_NAME = "checklistDB";
+const STORE = "estado";
 
-function salvarOffline(siteId,state){
-    const tx = db.transaction("relatorios","readwrite");
-    const store = tx.objectStore("relatorios");
-    store.put({siteId,data:state});
+function abrirDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, 1);
+
+    req.onupgradeneeded = e => {
+      e.target.result.createObjectStore(STORE);
+    };
+
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
 }
 
-function enviarOffline(){
-    const tx = db.transaction("relatorios","readonly");
-    const store = tx.objectStore("relatorios");
-    store.openCursor().onsuccess = async e=>{
-        const cursor = e.target.result;
-        if(cursor){
-            try{
-                await uploadParaOneDrive(cursor.value.siteId,cursor.value.data);
-                // remover se enviado com sucesso
-                const delTx = db.transaction("relatorios","readwrite");
-                delTx.objectStore("relatorios").delete(cursor.key);
-            }catch{}
-            cursor.continue();
-        }
-    };
+async function salvarEstado(state) {
+  const db = await abrirDB();
+  const tx = db.transaction(STORE, "readwrite");
+  tx.objectStore(STORE).put(state, "estado");
+}
+
+async function carregarEstado() {
+  const db = await abrirDB();
+  const tx = db.transaction(STORE, "readonly");
+  return new Promise(resolve => {
+    const req = tx.objectStore(STORE).get("estado");
+    req.onsuccess = () => resolve(req.result || {});
+  });
 }
