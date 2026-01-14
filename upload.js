@@ -8,7 +8,7 @@ async function uploadParaNextcloud(siteId, state){
         }
     );
 
-    if(!response.ok){
+    if (!response.ok) {
         throw new Error("Falha no upload");
     }
 }
