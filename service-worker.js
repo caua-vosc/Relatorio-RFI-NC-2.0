@@ -1,4 +1,4 @@
-const CACHE_NAME = "checklist-v2";
+const CACHE_NAME = "checklist-v3";
 
 const FILES_TO_CACHE = [
     "./",
@@ -13,12 +13,18 @@ self.addEventListener("install", event => {
     event.waitUntil(
         caches.open(CACHE_NAME)
             .then(cache => cache.addAll(FILES_TO_CACHE))
-            .catch(err => console.error("Erro ao criar cache:", err))
     );
 });
 
 self.addEventListener("fetch", event => {
+
+    // ⚠️ IGNORA requisições externas (Vercel, APIs)
+    if (!event.request.url.startsWith(self.location.origin)) {
+        return;
+    }
+
     event.respondWith(
-        fetch(event.request).catch(() => caches.match(event.request))
+        fetch(event.request)
+            .catch(() => caches.match(event.request))
     );
 });
