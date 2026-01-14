@@ -3,35 +3,61 @@
 <head>
   <meta charset="UTF-8">
   <title>Checklist Fotográfico</title>
+
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- PWA -->
   <link rel="manifest" href="manifest.json">
+
+  <!-- Estilos -->
   <link rel="stylesheet" href="styles.css">
 </head>
+
 <body>
 
-<header>
-  <h1>Checklist Fotográfico</h1>
-  <button id="adminBtn">Modo Administrador</button>
-</header>
+  <!-- HEADER -->
+  <header>
+    <h1>Checklist Fotográfico</h1>
 
-<main>
-  <label>ID do Site *</label>
-  <input id="siteId" type="text" placeholder="Ex: SITE_123">
+    <div>
+      <button onclick="toggleAdmin()">Modo Administrador</button>
+      <button
+        id="btnNovaSecao"
+        onclick="criarSecao()"
+        style="display:none; margin-left:8px"
+      >
+        + Nova Seção
+      </button>
+    </div>
+  </header>
 
-  <div id="checklistContainer"></div>
+  <!-- CONTEÚDO -->
+  <main>
+    <label for="siteId">ID do Site *</label>
+    <input
+      type="text"
+      id="siteId"
+      placeholder="Ex: SITE_123"
+    >
 
-  <button class="primary" onclick="enviarRelatorio()">Enviar Relatório</button>
-</main>
+    <div id="checklistContainer"></div>
 
-<script src="db.js"></script>
-<script src="upload.js"></script>
-<script src="app.js"></script>
+    <button class="primary" onclick="enviarRelatorio()">
+      Enviar Relatório
+    </button>
+  </main>
 
-<script>
-if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("service-worker.js");
-}
-</script>
+  <!-- SCRIPTS -->
+  <script src="db.js"></script>
+  <script src="upload.js"></script>
+  <script src="app.js"></script>
+
+  <!-- SERVICE WORKER -->
+  <script>
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("service-worker.js");
+    }
+  </script>
 
 </body>
 </html>
