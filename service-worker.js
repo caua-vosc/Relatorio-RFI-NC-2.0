@@ -11,15 +11,16 @@ self.addEventListener("install", event => {
 });
 
 self.addEventListener("fetch", event => {
-  const url = new URL(event.request.url);
 
-  // NÃO INTERCEPTAR API
-  if (url.pathname.startsWith("/api/")) return;
+  // NÃO interceptar o upload
+  if (event.request.url.includes("workers.dev")) {
+    return;
+  }
 
   event.respondWith(
-    caches.match(event.request).then(resp => {
-      return resp || fetch(event.request);
-    })
+    caches.match(event.request)
+      .then(resp => resp || fetch(event.request))
   );
 });
+
 
