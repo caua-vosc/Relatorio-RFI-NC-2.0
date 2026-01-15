@@ -1,7 +1,7 @@
 async function uploadParaNextcloud(siteId, state) {
 
   const ENDPOINT =
-    "https://SEU-WORKER.cloudflare.dev";
+    "https://rfi-20.caua-viniciusosc12.workers.dev/";
 
   const res = await fetch(ENDPOINT, {
     method: "POST",
