@@ -142,3 +142,4 @@ async function enviarRelatorio(){
     alert("Erro no envio: " + e.message);
   }
 }
+
