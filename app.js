@@ -126,18 +126,19 @@ function renderImages(secao,titulo){
 renderChecklist();
 
 async function enviarRelatorio(){
-    const siteId=document.getElementById("siteId").value.trim();
+  const siteId =
+    document.getElementById("siteId").value.trim();
 
-    if(!siteId){
-        alert("Informe o ID do site");
-        return;
-    }
+  if(!siteId){
+    alert("Informe o ID do site");
+    return;
+  }
 
-    try{
-        await uploadParaNextcloud(siteId,state);
-        alert("Upload concluído com sucesso!");
-    }catch(e){
-        console.error(e);
-        alert("Erro de conexão com servidor.");
-    }
+  try {
+    await uploadParaNextcloud(siteId, state);
+    alert("Upload concluído com sucesso!");
+  }
+  catch(e){
+    alert("Erro no envio: " + e.message);
+  }
 }
