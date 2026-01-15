@@ -1,7 +1,7 @@
 async function uploadParaNextcloud(siteId, state) {
 
   const ENDPOINT =
-    "https://relatorio-rfi-nc-2-0-api-o3jt-pl7iwc4lx-caua-voscs-projects.vercel.app/api/upload";
+    "https://relatorio-rfi-nc-2-0-api-o3jt-ew3cf2p6y-caua-voscs-projects.vercel.app/api/upload";
 
   const response = await fetch(ENDPOINT, {
     method: "POST",
