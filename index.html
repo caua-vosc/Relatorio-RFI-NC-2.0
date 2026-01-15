@@ -1,63 +1,125 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  <meta charset="UTF-8">
-  <title>Checklist Fotográfico</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Checklist Fotográfico</title>
 
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="manifest" href="manifest.json">
 
-  <!-- PWA -->
-  <link rel="manifest" href="manifest.json">
+<style>
+body{
+  font-family:sans-serif;
+  margin:20px;
+  background:#f5f7fb;
+}
 
-  <!-- Estilos -->
-  <link rel="stylesheet" href="styles.css">
+header{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  margin-bottom:20px;
+}
+
+section{
+  margin-bottom:20px;
+  border:1px solid #ccc;
+  padding:10px;
+  border-radius:10px;
+  background:white;
+}
+
+h1{color:#2563eb;}
+
+input[type="text"], input[type="file"]{
+  padding:10px;
+  width:100%;
+  margin-bottom:10px;
+}
+
+button{
+  padding:12px;
+  font-size:14px;
+  background:#2563eb;
+  color:white;
+  border:none;
+  border-radius:8px;
+  cursor:pointer;
+  margin-top:5px;
+}
+
+button:hover{
+  background:#1d4ed8;
+}
+
+img{
+  max-width:100px;
+  margin:5px;
+  border:1px solid #ccc;
+  border-radius:5px;
+}
+
+.contador{
+  font-size:12px;
+  color:gray;
+}
+
+.edit-title{
+  border:none;
+  background:#f0f0f0;
+  padding:5px;
+  font-size:16px;
+  width:100%;
+  margin-bottom:5px;
+}
+
+.admin-tools{
+  text-align:right;
+}
+
+.btn-danger{
+  background:#dc2626;
+}
+</style>
+
 </head>
 
 <body>
 
-  <!-- HEADER -->
-  <header>
-    <h1>Checklist Fotográfico</h1>
+<header>
+  <h1>Checklist Fotográfico</h1>
 
-    <div>
-      <button onclick="toggleAdmin()">Modo Administrador</button>
-      <button
-        id="btnNovaSecao"
-        onclick="criarSecao()"
-        style="display:none; margin-left:8px"
-      >
-        + Nova Seção
-      </button>
-    </div>
-  </header>
+  <div>
+    <button onclick="toggleAdmin()">Modo Administrador</button>
 
-  <!-- CONTEÚDO -->
-  <main>
-    <label for="siteId">ID do Site *</label>
-    <input
-      type="text"
-      id="siteId"
-      placeholder="Ex: SITE_123"
+    <button
+      id="btnNovaSecao"
+      onclick="criarSecao()"
+      style="display:none"
     >
-
-    <div id="checklistContainer"></div>
-
-    <button class="primary" onclick="enviarRelatorio()">
-      Enviar Relatório
+      + Nova Seção
     </button>
-  </main>
+  </div>
+</header>
 
-  <!-- SCRIPTS -->
-  <script src="db.js"></script>
-  <script src="upload.js"></script>
-  <script src="app.js"></script>
+<label>ID do Site (obrigatório)</label>
+<input type="text" id="siteId" placeholder="Ex: SITE_123">
 
-  <!-- SERVICE WORKER -->
-  <script>
-    if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("service-worker.js");
-    }
-  </script>
+<div id="checklistContainer"></div>
+
+<button onclick="enviarRelatorio()">
+📤 Enviar Relatório
+</button>
+
+<script src="db.js"></script>
+<script src="upload.js"></script>
+<script src="app.js"></script>
+
+<script>
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('service-worker.js');
+}
+</script>
 
 </body>
 </html>
