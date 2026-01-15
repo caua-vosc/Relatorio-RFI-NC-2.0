@@ -12,15 +12,16 @@ async function uploadParaNextcloud(siteId, state) {
     state: state
   };
 
-  console.log("ENVIANDO:", payload);
+ const res = await fetch(ENDPOINT, {
+  method: "POST",
+  mode: "cors",
+  cache: "no-store",
+  headers: {
+    "Content-Type": "application/json"
+  },
+  body: JSON.stringify(payload)
+});
 
-  const res = await fetch(ENDPOINT, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(payload)
-  });
 
   const txt = await res.text();
   console.log("RESPOSTA WORKER:", txt);
