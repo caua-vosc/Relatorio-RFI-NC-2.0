@@ -1,5 +1,5 @@
 /* =========================
-   NOVO (mantido, só com correção mínima para section dinâmico)
+   NOVO (mantido como você enviou)
 ========================= */
 const WORKER = "https://rfi-20.caua-viniciusosc12.workers.dev/";
 const CHUNK_SIZE = 1024 * 1024; // 1MB
@@ -16,7 +16,7 @@ async function compressImage(file, quality = 0.7) {
     const img = new Image();
     const reader = new FileReader();
 
-    reader.onload = e => (img.src = e.target.result);
+    reader.onload = e => img.src = e.target.result;
 
     img.onload = () => {
       const canvas = document.createElement("canvas");
@@ -30,13 +30,9 @@ async function compressImage(file, quality = 0.7) {
       const ctx = canvas.getContext("2d");
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
-      canvas.toBlob(
-        blob => {
-          resolve(new File([blob], file.name, { type: "image/jpeg" }));
-        },
-        "image/jpeg",
-        quality
-      );
+      canvas.toBlob(blob => {
+        resolve(new File([blob], file.name, { type: "image/jpeg" }));
+      }, "image/jpeg", quality);
     };
 
     reader.readAsDataURL(file);
@@ -70,9 +66,11 @@ function criarBarra(container) {
    UPLOAD COM CHUNK + RETRY
 ========================= */
 async function uploadArquivo(file, siteId, section, progressBar) {
+
   const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
 
   for (let i = 0; i < totalChunks; i++) {
+
     const start = i * CHUNK_SIZE;
     const end = Math.min(start + CHUNK_SIZE, file.size);
     const chunk = file.slice(start, end);
@@ -81,7 +79,9 @@ async function uploadArquivo(file, siteId, section, progressBar) {
     let enviado = false;
 
     while (!enviado && tentativa < MAX_RETRY) {
+
       try {
+
         const formData = new FormData();
         formData.append("file", chunk, file.name);
         formData.append("siteId", siteId);
@@ -95,6 +95,7 @@ async function uploadArquivo(file, siteId, section, progressBar) {
         if (!resp.ok) throw new Error("Falha no chunk");
 
         enviado = true;
+
       } catch (err) {
         tentativa++;
         if (tentativa >= MAX_RETRY) {
@@ -118,54 +119,28 @@ async function uploadArquivo(file, siteId, section, progressBar) {
    FILA INTELIGENTE
 ========================= */
 async function processQueue() {
+
   if (uploading) return;
   uploading = true;
 
   while (uploadQueue.length > 0) {
+
     const job = uploadQueue.shift();
 
-    await uploadArquivo(job.file, job.siteId, job.section, job.progressBar);
+    await uploadArquivo(
+      job.file,
+      job.siteId,
+      job.section,
+      job.progressBar
+    );
   }
 
   uploading = false;
 }
 
-/* =========================
-   INTEGRAÇÃO INPUT FILE
-   (mantido, só corrigido para aceitar section dinâmico)
-========================= */
-function ativarUpload(input, container, section) {
-  input.onchange = async e => {
-    const files = Array.from(e.target.files);
-    const siteId = document.getElementById("siteId").value;
-
-    if (!siteId) {
-      alert("Informe o ID do site antes de enviar fotos");
-      return;
-    }
-
-    // ✅ pega o nome atual da seção no momento do envio
-    const sectionName = typeof section === "function" ? section() : section;
-
-    for (let file of files) {
-      const progressBar = criarBarra(container);
-
-      const compressed = await compressImage(file);
-
-      uploadQueue.push({
-        file: compressed,
-        siteId,
-        section: sectionName,
-        progressBar
-      });
-    }
-
-    processQueue();
-  };
-}
 
 /* =========================
-   ANTIGO (restaurado) + correção de renomear seção
+   ANTIGO (igual ao que funcionava)
 ========================= */
 
 let adminMode = false;
@@ -185,202 +160,262 @@ let state = {};
 // ADMIN MODE
 // ============================
 
-function toggleAdmin() {
-  if (!adminMode) {
-    const senha = prompt("Senha do administrador:");
-    if (senha !== ADMIN_PASSWORD) {
-      alert("Senha incorreta.");
-      return;
+function toggleAdmin(){
+
+    if(!adminMode){
+        const senha = prompt("Senha do administrador:");
+        if(senha !== ADMIN_PASSWORD){
+            alert("Senha incorreta.");
+            return;
+        }
+
+        adminMode = true;
+        document.getElementById("btnNovaSecao").style.display="inline-block";
+        criarBotaoSalvar();
+        alert("Modo administrador ativado");
+
+    }else{
+
+        adminMode = false;
+        document.getElementById("btnNovaSecao").style.display="none";
+        removerBotaoSalvar();
+        alert("Modo administrador desativado");
     }
 
-    adminMode = true;
-    document.getElementById("btnNovaSecao").style.display = "inline-block";
-    criarBotaoSalvar();
-    alert("Modo administrador ativado");
-  } else {
-    adminMode = false;
-    document.getElementById("btnNovaSecao").style.display = "none";
-    removerBotaoSalvar();
-    alert("Modo administrador desativado");
-  }
-
-  renderChecklist();
+    renderChecklist();
 }
 
-function criarBotaoSalvar() {
-  if (document.getElementById("btnSalvarConfig")) return;
+function criarBotaoSalvar(){
 
-  const btn = document.createElement("button");
-  btn.id = "btnSalvarConfig";
-  btn.innerText = "Salvar Configuração";
-  btn.style.margin = "10px";
-  btn.onclick = salvarConfiguracao;
+    if(document.getElementById("btnSalvarConfig")) return;
 
-  document.body.appendChild(btn);
+    const btn = document.createElement("button");
+    btn.id = "btnSalvarConfig";
+    btn.innerText = "Salvar Configuração";
+    btn.style.margin = "10px";
+    btn.onclick = salvarConfiguracao;
+
+    document.body.appendChild(btn);
 }
 
-function removerBotaoSalvar() {
-  const btn = document.getElementById("btnSalvarConfig");
-  if (btn) btn.remove();
+function removerBotaoSalvar(){
+    const btn = document.getElementById("btnSalvarConfig");
+    if(btn) btn.remove();
 }
 
 // ============================
 // SEÇÕES
 // ============================
 
-function criarSecao() {
-  if (!adminMode) return;
-  const nome = prompt("Nome da nova seção:");
-  if (!nome) return;
-  secoes.push(nome.toUpperCase());
-  renderChecklist();
+function criarSecao(){
+    if(!adminMode) return;
+    const nome = prompt("Nome da nova seção:");
+    if(!nome) return;
+    secoes.push(nome.toUpperCase());
+    renderChecklist();
 }
 
-function excluirSecao(idx) {
-  if (!adminMode) return;
-  if (confirm("Deseja excluir esta seção e todas as fotos?")) {
-    const titulo = secoes[idx];
-    delete state[titulo];
-    secoes.splice(idx, 1);
-    renderChecklist();
-  }
+function excluirSecao(idx){
+    if(!adminMode) return;
+    if(confirm("Deseja excluir esta seção e todas as fotos?")){
+        const titulo = secoes[idx];
+        delete state[titulo];
+        secoes.splice(idx,1);
+        renderChecklist();
+    }
 }
 
 // ============================
 // RENDER
 // ============================
 
-function renderChecklist() {
-  const container = document.getElementById("checklistContainer");
-  container.innerHTML = "";
+function renderChecklist(){
 
-  secoes.forEach((titulo, idx) => {
-    const s = document.createElement("section");
+    const container =
+      document.getElementById("checklistContainer");
 
-    if (adminMode) {
-      const tools = document.createElement("div");
-      tools.className = "admin-tools";
+    container.innerHTML = "";
 
-      const del = document.createElement("button");
-      del.className = "btn-danger";
-      del.innerText = "Excluir seção";
-      del.onclick = () => excluirSecao(idx);
+    secoes.forEach((titulo, idx)=>{
 
-      tools.appendChild(del);
-      s.appendChild(tools);
-    }
+        const s = document.createElement("section");
 
-    const t = document.createElement("input");
-    t.className = "edit-title";
-    t.value = titulo;
-    t.disabled = !adminMode;
+        if(adminMode){
+            const tools = document.createElement("div");
+            tools.className="admin-tools";
 
-    // ✅ correção: ao renomear, salva de verdade (move state e atualiza fila)
-    t.onchange = e => {
-      const antigo = secoes[idx];
-      const novo = String(e.target.value || "").trim().toUpperCase();
+            const del = document.createElement("button");
+            del.className="btn-danger";
+            del.innerText="Excluir seção";
+            del.onclick=()=>excluirSecao(idx);
 
-      if (!novo) {
-        e.target.value = antigo;
-        return;
-      }
+            tools.appendChild(del);
+            s.appendChild(tools);
+        }
 
-      secoes[idx] = novo;
+        const t = document.createElement("input");
+        t.className="edit-title";
+        t.value=titulo;
+        t.disabled=!adminMode;
+        t.onchange=e=>secoes[idx]=e.target.value; // (mantido como era)
+        s.appendChild(t);
 
-      if (state[antigo]) {
-        state[novo] = state[antigo];
-        delete state[antigo];
-      }
+        const f = document.createElement("input");
+        f.type="file";
+        f.accept="image/*";
+        f.multiple=true;
 
-      uploadQueue.forEach(job => {
-        if (job.section === antigo) job.section = novo;
-      });
+        // ✅ CORREÇÃO: manter o comportamento antigo (state + preview)
+        // + adicionar o novo (compress + fila + chunk upload + barra)
+        f.onchange = async e => {
 
-      renderChecklist();
-    };
+            const files =
+              Array.from(e.target.files).slice(0,10);
 
-    s.appendChild(t);
+            if(!state[titulo]) state[titulo]=[];
 
-    const f = document.createElement("input");
-    f.type = "file";
-    f.accept = "image/*";
-    f.multiple = true;
-    s.appendChild(f);
+            // 1) antigo: salvar no state e renderizar preview
+            files.forEach(file=>{
+                const r=new FileReader();
+                r.onload=ev=>{
+                    state[titulo].push(ev.target.result);
+                    renderImages(s,titulo);
+                };
+                r.readAsDataURL(file);
+            });
 
-    const imgs = document.createElement("div");
-    s.appendChild(imgs);
+            // 2) novo: compress + fila + upload por chunks com barra
+            const siteId = document.getElementById("siteId").value;
 
-    // ✅ usa o nome atual da seção (dinâmico)
-    ativarUpload(f, imgs, () => secoes[idx]);
+            if (!siteId) {
+              alert("Informe o ID do site antes de enviar fotos");
+              return;
+            }
 
-    renderImages(s, titulo);
-    container.appendChild(s);
-  });
+            for (let file of files) {
+              const progressBar = criarBarra(imgs);
+              const compressed = await compressImage(file);
+
+              uploadQueue.push({
+                file: compressed,
+                siteId,
+                section: titulo,
+                progressBar
+              });
+            }
+
+            processQueue();
+        };
+
+        s.appendChild(f);
+
+        const imgs=document.createElement("div");
+        s.appendChild(imgs);
+
+        renderImages(s,titulo);
+        container.appendChild(s);
+    });
 }
 
-function renderImages(secao, titulo) {
-  const c = secao.querySelector("div:last-child");
-  c.innerHTML = "";
+function renderImages(secao,titulo){
 
-  if (!state[titulo]) return;
+    const c=secao.querySelector("div:last-child");
+    c.innerHTML="";
 
-  state[titulo].forEach((src, i) => {
-    const img = document.createElement("img");
-    img.src = src;
+    if(!state[titulo]) return;
 
-    img.onclick = () => {
-      if (confirm("Remover foto?")) {
-        state[titulo].splice(i, 1);
-        renderImages(secao, titulo);
-      }
-    };
+    state[titulo].forEach((src,i)=>{
 
-    c.appendChild(img);
-  });
+        const img=document.createElement("img");
+        img.src=src;
 
-  const ct = document.createElement("div");
-  ct.className = "contador";
-  ct.innerText = `Fotos: ${state[titulo].length}/10`;
-  c.appendChild(ct);
+        img.onclick=()=>{
+            if(confirm("Remover foto?")){
+                state[titulo].splice(i,1);
+                renderImages(secao,titulo);
+            }
+        };
+
+        c.appendChild(img);
+    });
+
+    const ct=document.createElement("div");
+    ct.className="contador";
+    ct.innerText=`Fotos: ${state[titulo].length}/10`;
+    c.appendChild(ct);
 }
 
 // ============================
 // CONFIGURAÇÃO REMOTA
 // ============================
 
-async function salvarConfiguracao() {
-  try {
-    await fetch(WORKER + "?config=true", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ secoes })
-    });
+async function salvarConfiguracao(){
 
-    alert("Configuração salva com sucesso!");
-  } catch (e) {
-    alert("Erro ao salvar configuração");
-  }
+    try{
+        await fetch(WORKER + "?config=true", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ secoes })
+        });
+
+        alert("Configuração salva com sucesso!");
+    }
+    catch(e){
+        alert("Erro ao salvar configuração");
+    }
 }
 
-async function carregarConfiguracao() {
-  try {
-    const r = await fetch(WORKER + "?getconfig=true");
+async function carregarConfiguracao(){
 
-    if (r.ok) {
-      const data = await r.json();
-      if (data.secoes) {
-        secoes = data.secoes;
-      }
+    try{
+        const r = await fetch(
+          WORKER + "?getconfig=true"
+        );
+
+        if(r.ok){
+            const data = await r.json();
+            if(data.secoes){
+                secoes = data.secoes;
+            }
+        }
     }
-  } catch (e) {
-    console.log("Sem configuração remota");
+    catch(e){
+        console.log("Sem configuração remota");
+    }
+
+    renderChecklist();
+}
+
+// ============================
+// ENVIO RELATÓRIO (mantido)
+// ============================
+
+async function enviarRelatorio(){
+
+  const siteId =
+    document.getElementById("siteId").value.trim();
+
+  if(!siteId){
+    alert("Informe o ID do site");
+    return;
   }
 
-  renderChecklist();
+  try {
+    await uploadParaNextcloud(siteId, state);
+    alert("Upload concluído com sucesso!");
+    state = {};
+    renderChecklist();
+  }
+  catch(e){
+    alert("Erro no envio: " + e.message);
+  }
 }
 
 // ============================
 // INICIALIZAÇÃO
+// ============================
+
+carregarConfiguracao();
 // ============================
 
 carregarConfiguracao();
