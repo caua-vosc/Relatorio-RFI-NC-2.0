@@ -1,34 +1,35 @@
-async function uploadParaNextcloud(siteId, state) {
+async function uploadFileToWorker(siteId, section, file, onProgress){
+  return new Promise((resolve, reject)=>{
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "https://rfi-20.caua-viniciusosc12.workers.dev/", true);
 
-  if (!siteId || !state) {
-    throw new Error("Dados inválidos antes do envio");
-  }
+    xhr.upload.onprogress = (evt)=>{
+      if(evt.lengthComputable && typeof onProgress === "function"){
+        const p = Math.round((evt.loaded / evt.total) * 100);
+        onProgress(p);
+      }
+    };
 
-  const ENDPOINT =
-    "https://rfi-20.caua-viniciusosc12.workers.dev/";
+    xhr.onload = ()=>{
+      const txt = xhr.responseText || "";
+      if(xhr.status >= 200 && xhr.status < 300){
+        try{
+          resolve(JSON.parse(txt));
+        } catch {
+          resolve({ success:true });
+        }
+      } else {
+        reject(new Error(txt || ("HTTP " + xhr.status)));
+      }
+    };
 
-  const payload = {
-    siteId: siteId,
-    state: state
-  };
+    xhr.onerror = ()=> reject(new Error("Falha de rede no upload"));
 
- const res = await fetch(ENDPOINT, {
-  method: "POST",
-  mode: "cors",
-  cache: "no-store",
-  headers: {
-    "Content-Type": "application/json"
-  },
-  body: JSON.stringify(payload)
-});
+    const fd = new FormData();
+    fd.append("siteId", siteId);
+    fd.append("section", section);
+    fd.append("file", file, file.name);
 
-
-  const txt = await res.text();
-  console.log("RESPOSTA WORKER:", txt);
-
-  if (!res.ok) {
-    throw new Error(txt);
-  }
-
-  return JSON.parse(txt);
+    xhr.send(fd);
+  });
 }
