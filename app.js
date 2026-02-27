@@ -168,7 +168,6 @@ function ativarUpload(input, container, section) {
   };
 }
 
-    }
 }
 
 carregarConfiguracao();
