@@ -138,7 +138,6 @@ function getGeolocation(){
 
 // ================= AZIMUTE (BÚSSOLA) =================
 async function requestOrientationPermissionIfNeeded(){
-  // iOS pede permissão explícita
   if (typeof DeviceOrientationEvent !== "undefined" &&
       typeof DeviceOrientationEvent.requestPermission === "function") {
     try {
@@ -165,12 +164,10 @@ function getAzimuthOnce(){
 
     const handler = (event)=>{
       let az = null;
-      // iOS
       if (typeof event.webkitCompassHeading === "number") {
-        az = event.webkitCompassHeading;
+        az = event.webkitCompassHeading;       // iOS
       } else if (typeof event.alpha === "number") {
-        // Android (aproximação)
-        az = event.alpha;
+        az = event.alpha;                      // Android (aprox.)
       }
       window.removeEventListener("deviceorientation", handler, true);
 
@@ -191,17 +188,13 @@ function getAzimuthOnce(){
 }
 
 // ================= ENDEREÇO (Reverse Geocoding) =================
-// OSM Nominatim (sem key). 1 req/seleção para evitar bloqueio.
 async function reverseGeocode(lat, lon){
   try{
     const url =
       `https://nominatim.openstreetmap.org/reverse` +
       `?format=jsonv2&lat=${lat}&lon=${lon}&zoom=18&addressdetails=1`;
 
-    const r = await fetch(url, {
-      headers: { "Accept": "application/json" }
-    });
-
+    const r = await fetch(url, { headers: { "Accept": "application/json" } });
     if(!r.ok) throw new Error("Falha reverse geocoding");
 
     const data = await r.json();
@@ -222,7 +215,7 @@ async function reverseGeocode(lat, lon){
   }
 }
 
-// ================= IMAGEM: carregar + carimbo =================
+// ================= HELPERS IMAGEM/TEXTO =================
 function loadImageFromFile(file){
   return new Promise((resolve, reject)=>{
     const img = new Image();
@@ -239,93 +232,239 @@ function formatCoord(n){
 }
 function formatAcc(n){
   if(typeof n !== "number") return "—";
-  return `${Math.round(n)} m`;
+  return `${Math.round(n)}m`;
 }
 function formatAz(n){
   if(typeof n !== "number") return "—";
   return `${Math.round(n)}°`;
 }
 
-function buildAddressLine(addr){
-  if(!addr || addr.error) return "📍 Endereço: indisponível";
-  const parts = [
-    addr.road,
-    addr.house_number,
-    addr.neighbourhood,
-    addr.city,
-    addr.state
-  ].filter(Boolean);
-
-  if(!parts.length && addr.display) return "📍 " + addr.display;
-  if(!parts.length) return "📍 Endereço: indisponível";
-
-  return "📍 " + parts.join(" - ");
+function buildAddressText(addr){
+  if(!addr || addr.error) return "Endereço indisponível";
+  const parts = [addr.road, addr.house_number, addr.neighbourhood, addr.city, addr.state].filter(Boolean);
+  if(parts.length) return parts.join(" - ");
+  if(addr.display) return addr.display;
+  return "Endereço indisponível";
 }
 
-// gera JPG final carimbado (estilo TimeScan) com faixa inferior
-async function stampAndCompress(file, meta, maxWidth = 1600, quality = 0.78){
+// quebra texto em múltiplas linhas sem cortar
+function wrapText(ctx, text, maxWidth){
+  const words = String(text || "").split(/\s+/).filter(Boolean);
+  const lines = [];
+  let line = "";
+
+  for(const w of words){
+    const test = line ? (line + " " + w) : w;
+    if(ctx.measureText(test).width <= maxWidth){
+      line = test;
+    } else {
+      if(line) lines.push(line);
+      line = w;
+    }
+  }
+  if(line) lines.push(line);
+  return lines;
+}
+
+// texto premium: stroke + fill + leve sombra
+function drawTextPremium(ctx, text, x, y){
+  ctx.save();
+  ctx.shadowColor = "rgba(0,0,0,0.35)";
+  ctx.shadowBlur = Math.max(2, Math.round(parseInt(ctx.font,10) * 0.12));
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = 1;
+
+  ctx.lineJoin = "round";
+  ctx.miterLimit = 2;
+  ctx.strokeStyle = "rgba(0,0,0,0.85)";
+  ctx.lineWidth = Math.max(3, Math.round(parseInt(ctx.font,10) * 0.18));
+  ctx.strokeText(text, x, y);
+
+  ctx.fillStyle = "#ffffff";
+  ctx.fillText(text, x, y);
+  ctx.restore();
+}
+
+// ================= CARIMBO PREMIUM (SEM FUNDO, PROPORCIONAL) =================
+async function stampAndCompress(file, meta, maxWidth = 1800, quality = 0.85){
   const img = await loadImageFromFile(file);
 
+  // escala proporcional
   const scale = Math.min(1, maxWidth / img.width);
   const w = Math.round(img.width * scale);
   const h = Math.round(img.height * scale);
 
-  const bandH = Math.max(190, Math.round(h * 0.22)); // maior p/ 3 linhas
+  // canvas MESMO tamanho da foto (sem faixa)
   const canvas = document.createElement("canvas");
   canvas.width = w;
-  canvas.height = h + bandH;
-
+  canvas.height = h;
   const ctx = canvas.getContext("2d");
 
-  // desenha foto
   ctx.drawImage(img, 0, 0, w, h);
 
-  // faixa inferior
-  ctx.fillStyle = "rgba(0,0,0,0.74)";
-  ctx.fillRect(0, h, w, bandH);
+  // base de proporção: menor lado
+  const base = Math.min(w, h);
 
-  // dados
+  // margens proporcionais
+  const padX = Math.max(18, Math.round(base * 0.035));
+  const padBottom = Math.max(18, Math.round(base * 0.035));
+  const maxTextWidth = w - padX * 2;
+
+  // fontes proporcionais (premium)
+  let fTitle = Math.max(18, Math.round(base * 0.040)); // linha 1 (valores)
+  let fSub   = Math.max(16, Math.round(base * 0.034)); // linha 2 (az/data)
+  let fAddr  = Math.max(14, Math.round(base * 0.030)); // endereço
+
+  // valores
   const tsLocal = meta?.capturedAt?.local || new Date().toLocaleString("pt-BR");
   const lat = meta?.geolocation?.available ? formatCoord(meta.geolocation.latitude) : "—";
   const lon = meta?.geolocation?.available ? formatCoord(meta.geolocation.longitude) : "—";
   const acc = meta?.geolocation?.available ? formatAcc(meta.geolocation.accuracy_m) : "—";
-  const az = meta?.azimuth?.available ? formatAz(meta.azimuth.azimuth_deg) : "—";
-  const addrLine = buildAddressLine(meta?.address);
+  const az  = meta?.azimuth?.available ? formatAz(meta.azimuth.azimuth_deg) : "—";
+  const addrText = buildAddressText(meta?.address);
 
-  const line1 = `LAT: ${lat}   LON: ${lon}   (±${acc})`;
-  const line2 = `🧭 AZIMUTE: ${az}   🕒 ${tsLocal}`;
-  const line3 = addrLine;
+  // layout premium em colunas (linha 1)
+  const colGap = Math.max(14, Math.round(base * 0.02));
+  const col1 = `LAT ${lat}`;
+  const col2 = `LON ${lon}`;
+  const col3 = `±${acc}`;
 
-  const padX = 18;
-  const font1 = Math.max(18, Math.round(bandH * 0.18));
-  const font2 = Math.max(16, Math.round(bandH * 0.16));
-  const font3 = Math.max(15, Math.round(bandH * 0.15));
+  // linha 2: az à esquerda / data à direita
+  const left2 = `AZ ${az}`;
+  const right2 = tsLocal;
 
-  ctx.fillStyle = "#ffffff";
-  ctx.textBaseline = "top";
+  // função para montar e garantir que cabe sem cortar
+  function computeLines(){
+    // linha 1 (colunas)
+    ctx.font = `800 ${fTitle}px system-ui, -apple-system, Segoe UI, Roboto, Arial`;
+    const w1 = ctx.measureText(col1).width;
+    const w2 = ctx.measureText(col2).width;
+    const w3 = ctx.measureText(col3).width;
+    const totalCols = w1 + colGap + w2 + colGap + w3;
 
-  // sombra leve
-  ctx.shadowColor = "rgba(0,0,0,0.6)";
-  ctx.shadowBlur = 6;
-  ctx.shadowOffsetX = 0;
-  ctx.shadowOffsetY = 2;
+    // se estourar largura, reduz fonte
+    if(totalCols > maxTextWidth){
+      return { ok:false };
+    }
 
-  const y1 = h + Math.round(bandH * 0.16);
-  const y2 = h + Math.round(bandH * 0.44);
-  const y3 = h + Math.round(bandH * 0.70);
+    // linha 2
+    ctx.font = `800 ${fSub}px system-ui, -apple-system, Segoe UI, Roboto, Arial`;
+    const leftW = ctx.measureText(left2).width;
+    const rightW = ctx.measureText(right2).width;
 
-  ctx.font = `700 ${font1}px system-ui, -apple-system, Segoe UI, Roboto, Arial`;
-  ctx.fillText(line1, padX, y1);
+    if(leftW + colGap + rightW > maxTextWidth){
+      return { ok:false };
+    }
 
-  ctx.font = `700 ${font2}px system-ui, -apple-system, Segoe UI, Roboto, Arial`;
-  ctx.fillText(line2, padX, y2);
+    // endereço (até 3 linhas)
+    ctx.font = `700 ${fAddr}px system-ui, -apple-system, Segoe UI, Roboto, Arial`;
+    let addrLines = wrapText(ctx, addrText, maxTextWidth);
+    if(addrLines.length > 3){
+      addrLines = addrLines.slice(0,3);
+      // ellipsis na última
+      const last = addrLines[2];
+      addrLines[2] = last.length > 6 ? last.replace(/\s+\S*$/, "…") : (last + "…");
+    }
 
-  ctx.font = `600 ${font3}px system-ui, -apple-system, Segoe UI, Roboto, Arial`;
-  ctx.fillText(line3, padX, y3);
+    // altura total necessária
+    const lh1 = Math.round(fTitle * 1.25);
+    const lh2 = Math.round(fSub * 1.25);
+    const lh3 = Math.round(fAddr * 1.25);
+    const totalH = lh1 + lh2 + (addrLines.length * lh3) + Math.round(base * 0.02);
 
-  ctx.shadowBlur = 0;
+    // área “segura” do rodapé proporcional
+    const safeH = Math.max(150, Math.round(base * 0.28));
+    if(totalH > safeH){
+      return { ok:false };
+    }
 
-  // export jpg
+    return { ok:true, addrLines, lh1, lh2, lh3, totalH, w1, w2, w3, leftW, rightW };
+  }
+
+  // ajuste automático de fonte para caber em qualquer proporção
+  let layout = null;
+  for(let i=0;i<12;i++){
+    const test = computeLines();
+    if(test.ok){ layout = test; break; }
+    fTitle = Math.max(14, fTitle - 2);
+    fSub   = Math.max(13, fSub - 2);
+    fAddr  = Math.max(12, fAddr - 2);
+  }
+
+  // se ainda assim falhar, cai para layout simples (nunca corta)
+  if(!layout){
+    ctx.font = `800 ${fTitle}px system-ui, -apple-system, Segoe UI, Roboto, Arial`;
+    const lh = Math.round(fTitle * 1.25);
+    const safeH = Math.max(150, Math.round(base * 0.30));
+
+    const lineA = `LAT ${lat}  LON ${lon}  ±${acc}`;
+    const lineB = `AZ ${az}  ${tsLocal}`;
+
+    ctx.font = `700 ${fAddr}px system-ui, -apple-system, Segoe UI, Roboto, Arial`;
+    let addrLines = wrapText(ctx, addrText, maxTextWidth);
+    if(addrLines.length > 3){
+      addrLines = addrLines.slice(0,3);
+      addrLines[2] = addrLines[2].replace(/\s+\S*$/, "…");
+    }
+
+    const lhA = Math.round(fTitle * 1.25);
+    const lhB = Math.round(fSub * 1.25);
+    const lhC = Math.round(fAddr * 1.25);
+    const totalH = lhA + lhB + addrLines.length * lhC + 8;
+
+    let y = h - padBottom - Math.min(totalH, safeH);
+
+    ctx.textBaseline = "top";
+    ctx.textAlign = "left";
+
+    ctx.font = `900 ${fTitle}px system-ui, -apple-system, Segoe UI, Roboto, Arial`;
+    drawTextPremium(ctx, lineA, padX, y); y += lhA;
+
+    ctx.font = `900 ${fSub}px system-ui, -apple-system, Segoe UI, Roboto, Arial`;
+    drawTextPremium(ctx, lineB, padX, y); y += lhB;
+
+    ctx.font = `800 ${fAddr}px system-ui, -apple-system, Segoe UI, Roboto, Arial`;
+    for(const l of addrLines){
+      drawTextPremium(ctx, l, padX, y); y += lhC;
+    }
+
+  } else {
+    // desenha premium alinhado
+    let y = h - padBottom - layout.totalH;
+
+    ctx.textBaseline = "top";
+
+    // Linha 1 em colunas
+    ctx.font = `900 ${fTitle}px system-ui, -apple-system, Segoe UI, Roboto, Arial`;
+    ctx.textAlign = "left";
+    drawTextPremium(ctx, col1, padX, y);
+
+    const x2 = padX + layout.w1 + colGap;
+    drawTextPremium(ctx, col2, x2, y);
+
+    const x3 = x2 + layout.w2 + colGap;
+    drawTextPremium(ctx, col3, x3, y);
+    y += layout.lh1;
+
+    // Linha 2: AZ à esquerda / Data à direita
+    ctx.font = `900 ${fSub}px system-ui, -apple-system, Segoe UI, Roboto, Arial`;
+    ctx.textAlign = "left";
+    drawTextPremium(ctx, left2, padX, y);
+
+    ctx.textAlign = "right";
+    drawTextPremium(ctx, right2, w - padX, y);
+    y += layout.lh2;
+
+    // Endereço (1..3 linhas)
+    ctx.font = `800 ${fAddr}px system-ui, -apple-system, Segoe UI, Roboto, Arial`;
+    ctx.textAlign = "left";
+    for(const l of layout.addrLines){
+      drawTextPremium(ctx, l, padX, y);
+      y += layout.lh3;
+    }
+  }
+
+  // exporta JPG
   return new Promise((resolve, reject)=>{
     canvas.toBlob((blob)=>{
       if(!blob) return reject(new Error("Falha ao gerar imagem carimbada"));
@@ -416,7 +555,7 @@ function renderChecklist(){
           userAgent: navigator.userAgent
         };
 
-        const stamped = await stampAndCompress(file, meta, 1600, 0.78);
+        const stamped = await stampAndCompress(file, meta, 1800, 0.85);
         meta.savedName = stamped.name;
 
         uploadQueue.push({
@@ -555,7 +694,7 @@ async function processQueue(){
   uploading = false;
 }
 
-// ================= BOTÃO ENVIAR (APENAS CONFIRMA) =================
+// ================= BOTÃO ENVIAR =================
 async function enviarRelatorio(){
   const siteId = document.getElementById("siteId").value.trim();
   if(!siteId){
