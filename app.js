@@ -1,3 +1,5 @@
+const WORKER =
+  "https://rfi-20.caua-viniciusosc12.workers.dev/";
 let adminMode = false;
 const ADMIN_PASSWORD = "Nova@123";
 
