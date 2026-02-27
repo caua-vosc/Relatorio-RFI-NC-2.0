@@ -26,12 +26,14 @@ function toggleAdmin(){
       return;
     }
     adminMode = true;
-    document.getElementById("btnNovaSecao").style.display="inline-block";
+    const btn = document.getElementById("btnNovaSecao");
+    if(btn) btn.style.display="inline-block";
     criarBotaoSalvarConfig();
     alert("Modo administrador ativado");
   } else {
     adminMode = false;
-    document.getElementById("btnNovaSecao").style.display="none";
+    const btn = document.getElementById("btnNovaSecao");
+    if(btn) btn.style.display="none";
     removerBotaoSalvarConfig();
     alert("Modo administrador desativado");
   }
@@ -165,9 +167,9 @@ function getAzimuthOnce(){
     const handler = (event)=>{
       let az = null;
       if (typeof event.webkitCompassHeading === "number") {
-        az = event.webkitCompassHeading;       // iOS
+        az = event.webkitCompassHeading; // iOS
       } else if (typeof event.alpha === "number") {
-        az = event.alpha;                      // Android (aprox.)
+        az = event.alpha; // Android (aprox)
       }
       window.removeEventListener("deviceorientation", handler, true);
 
@@ -247,46 +249,41 @@ function buildAddressText(addr){
   return "Endereço indisponível";
 }
 
-// quebra texto em múltiplas linhas sem cortar
-function wrapText(ctx, text, maxWidth){
+function roundRect(ctx, x, y, w, h, r){
+  const radius = Math.min(r, w/2, h/2);
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.arcTo(x + w, y, x + w, y + h, radius);
+  ctx.arcTo(x + w, y + h, x, y + h, radius);
+  ctx.arcTo(x, y + h, x, y, radius);
+  ctx.arcTo(x, y, x + w, y, radius);
+  ctx.closePath();
+}
+
+function wrapTextLines(ctx, text, maxWidth){
   const words = String(text || "").split(/\s+/).filter(Boolean);
   const lines = [];
   let line = "";
-
   for(const w of words){
     const test = line ? (line + " " + w) : w;
-    if(ctx.measureText(test).width <= maxWidth){
-      line = test;
-    } else {
-      if(line) lines.push(line);
-      line = w;
-    }
+    if(ctx.measureText(test).width <= maxWidth) line = test;
+    else { if(line) lines.push(line); line = w; }
   }
   if(line) lines.push(line);
   return lines;
 }
 
-// texto premium: stroke + fill + leve sombra
-function drawTextPremium(ctx, text, x, y){
-  ctx.save();
-  ctx.shadowColor = "rgba(0,0,0,0.35)";
-  ctx.shadowBlur = Math.max(2, Math.round(parseInt(ctx.font,10) * 0.12));
-  ctx.shadowOffsetX = 0;
-  ctx.shadowOffsetY = 1;
-
-  ctx.lineJoin = "round";
-  ctx.miterLimit = 2;
-  ctx.strokeStyle = "rgba(0,0,0,0.85)";
-  ctx.lineWidth = Math.max(3, Math.round(parseInt(ctx.font,10) * 0.18));
-  ctx.strokeText(text, x, y);
-
-  ctx.fillStyle = "#ffffff";
-  ctx.fillText(text, x, y);
-  ctx.restore();
+function ellipsizeToWidth(ctx, text, maxWidth){
+  let t = String(text || "");
+  if(ctx.measureText(t).width <= maxWidth) return t;
+  while(t.length > 3 && ctx.measureText(t + "…").width > maxWidth){
+    t = t.slice(0, -1);
+  }
+  return t + "…";
 }
 
-// ================= CARIMBO PREMIUM (SEM FUNDO, PROPORCIONAL) =================
-async function stampAndCompress(file, meta, maxWidth = 1800, quality = 0.85){
+// ================= CARIMBO PREMIUM (box pequeno no canto) =================
+async function stampAndCompress(file, meta, maxWidth = 1800, quality = 0.88){
   const img = await loadImageFromFile(file);
 
   // escala proporcional
@@ -294,7 +291,6 @@ async function stampAndCompress(file, meta, maxWidth = 1800, quality = 0.85){
   const w = Math.round(img.width * scale);
   const h = Math.round(img.height * scale);
 
-  // canvas MESMO tamanho da foto (sem faixa)
   const canvas = document.createElement("canvas");
   canvas.width = w;
   canvas.height = h;
@@ -302,20 +298,19 @@ async function stampAndCompress(file, meta, maxWidth = 1800, quality = 0.85){
 
   ctx.drawImage(img, 0, 0, w, h);
 
-  // base de proporção: menor lado
   const base = Math.min(w, h);
 
-  // margens proporcionais
-  const padX = Math.max(18, Math.round(base * 0.035));
-  const padBottom = Math.max(18, Math.round(base * 0.035));
-  const maxTextWidth = w - padX * 2;
+  // box premium
+  const pad = Math.max(10, Math.round(base * 0.020));
+  const margin = Math.max(12, Math.round(base * 0.025));
+  const radius = Math.max(10, Math.round(base * 0.020));
+  const maxBoxWidth = Math.min(Math.round(w * 0.78), Math.round(base * 1.55));
 
-  // fontes proporcionais (premium)
-  let fTitle = Math.max(18, Math.round(base * 0.040)); // linha 1 (valores)
-  let fSub   = Math.max(16, Math.round(base * 0.034)); // linha 2 (az/data)
-  let fAddr  = Math.max(14, Math.round(base * 0.030)); // endereço
+  // fontes proporcionais
+  const fSmall = Math.max(12, Math.round(base * 0.030));
+  const fTiny  = Math.max(11, Math.round(base * 0.028));
 
-  // valores
+  // dados
   const tsLocal = meta?.capturedAt?.local || new Date().toLocaleString("pt-BR");
   const lat = meta?.geolocation?.available ? formatCoord(meta.geolocation.latitude) : "—";
   const lon = meta?.geolocation?.available ? formatCoord(meta.geolocation.longitude) : "—";
@@ -323,146 +318,79 @@ async function stampAndCompress(file, meta, maxWidth = 1800, quality = 0.85){
   const az  = meta?.azimuth?.available ? formatAz(meta.azimuth.azimuth_deg) : "—";
   const addrText = buildAddressText(meta?.address);
 
-  // layout premium em colunas (linha 1)
-  const colGap = Math.max(14, Math.round(base * 0.02));
-  const col1 = `LAT ${lat}`;
-  const col2 = `LON ${lon}`;
-  const col3 = `±${acc}`;
+  const line1 = `Lat ${lat}   Lon ${lon}   (±${acc})`;
+  const line2 = `Azimute ${az}   ${tsLocal}`;
 
-  // linha 2: az à esquerda / data à direita
-  const left2 = `AZ ${az}`;
-  const right2 = tsLocal;
-
-  // função para montar e garantir que cabe sem cortar
-  function computeLines(){
-    // linha 1 (colunas)
-    ctx.font = `800 ${fTitle}px system-ui, -apple-system, Segoe UI, Roboto, Arial`;
-    const w1 = ctx.measureText(col1).width;
-    const w2 = ctx.measureText(col2).width;
-    const w3 = ctx.measureText(col3).width;
-    const totalCols = w1 + colGap + w2 + colGap + w3;
-
-    // se estourar largura, reduz fonte
-    if(totalCols > maxTextWidth){
-      return { ok:false };
-    }
-
-    // linha 2
-    ctx.font = `800 ${fSub}px system-ui, -apple-system, Segoe UI, Roboto, Arial`;
-    const leftW = ctx.measureText(left2).width;
-    const rightW = ctx.measureText(right2).width;
-
-    if(leftW + colGap + rightW > maxTextWidth){
-      return { ok:false };
-    }
-
-    // endereço (até 3 linhas)
-    ctx.font = `700 ${fAddr}px system-ui, -apple-system, Segoe UI, Roboto, Arial`;
-    let addrLines = wrapText(ctx, addrText, maxTextWidth);
-    if(addrLines.length > 3){
-      addrLines = addrLines.slice(0,3);
-      // ellipsis na última
-      const last = addrLines[2];
-      addrLines[2] = last.length > 6 ? last.replace(/\s+\S*$/, "…") : (last + "…");
-    }
-
-    // altura total necessária
-    const lh1 = Math.round(fTitle * 1.25);
-    const lh2 = Math.round(fSub * 1.25);
-    const lh3 = Math.round(fAddr * 1.25);
-    const totalH = lh1 + lh2 + (addrLines.length * lh3) + Math.round(base * 0.02);
-
-    // área “segura” do rodapé proporcional
-    const safeH = Math.max(150, Math.round(base * 0.28));
-    if(totalH > safeH){
-      return { ok:false };
-    }
-
-    return { ok:true, addrLines, lh1, lh2, lh3, totalH, w1, w2, w3, leftW, rightW };
+  // endereço 1–2 linhas
+  ctx.font = `600 ${fTiny}px system-ui, -apple-system, Segoe UI, Roboto, Arial`;
+  const addrMaxWidth = maxBoxWidth - (pad * 2);
+  let addrLines = wrapTextLines(ctx, addrText, addrMaxWidth);
+  if(addrLines.length > 2){
+    addrLines = addrLines.slice(0,2);
+    addrLines[1] = ellipsizeToWidth(ctx, addrLines[1], addrMaxWidth);
   }
 
-  // ajuste automático de fonte para caber em qualquer proporção
-  let layout = null;
-  for(let i=0;i<12;i++){
-    const test = computeLines();
-    if(test.ok){ layout = test; break; }
-    fTitle = Math.max(14, fTitle - 2);
-    fSub   = Math.max(13, fSub - 2);
-    fAddr  = Math.max(12, fAddr - 2);
-  }
+  // mede box
+  ctx.font = `800 ${fSmall}px system-ui, -apple-system, Segoe UI, Roboto, Arial`;
+  const w1 = ctx.measureText(line1).width;
+  const w2 = ctx.measureText(line2).width;
 
-  // se ainda assim falhar, cai para layout simples (nunca corta)
-  if(!layout){
-    ctx.font = `800 ${fTitle}px system-ui, -apple-system, Segoe UI, Roboto, Arial`;
-    const lh = Math.round(fTitle * 1.25);
-    const safeH = Math.max(150, Math.round(base * 0.30));
+  ctx.font = `600 ${fTiny}px system-ui, -apple-system, Segoe UI, Roboto, Arial`;
+  const wA1 = addrLines[0] ? ctx.measureText(addrLines[0]).width : 0;
+  const wA2 = addrLines[1] ? ctx.measureText(addrLines[1]).width : 0;
 
-    const lineA = `LAT ${lat}  LON ${lon}  ±${acc}`;
-    const lineB = `AZ ${az}  ${tsLocal}`;
+  const boxW = Math.min(
+    maxBoxWidth,
+    Math.ceil(Math.max(w1, w2, wA1, wA2) + pad * 2)
+  );
 
-    ctx.font = `700 ${fAddr}px system-ui, -apple-system, Segoe UI, Roboto, Arial`;
-    let addrLines = wrapText(ctx, addrText, maxTextWidth);
-    if(addrLines.length > 3){
-      addrLines = addrLines.slice(0,3);
-      addrLines[2] = addrLines[2].replace(/\s+\S*$/, "…");
-    }
+  const lh1 = Math.round(fSmall * 1.18);
+  const lh2 = Math.round(fSmall * 1.18);
+  const lhA = Math.round(fTiny  * 1.20);
 
-    const lhA = Math.round(fTitle * 1.25);
-    const lhB = Math.round(fSub * 1.25);
-    const lhC = Math.round(fAddr * 1.25);
-    const totalH = lhA + lhB + addrLines.length * lhC + 8;
+  const boxH = Math.ceil((lh1 + lh2) + (addrLines.length ? (addrLines.length * lhA + Math.round(base*0.008)) : 0) + pad * 1.2);
 
-    let y = h - padBottom - Math.min(totalH, safeH);
+  // posição: canto inferior esquerdo (premium)
+  const x = margin;
+  const y = h - margin - boxH;
 
-    ctx.textBaseline = "top";
-    ctx.textAlign = "left";
+  // fundo translúcido + sombra suave
+  ctx.save();
+  ctx.shadowColor = "rgba(0,0,0,0.35)";
+  ctx.shadowBlur = Math.max(8, Math.round(base * 0.02));
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = Math.max(2, Math.round(base * 0.006));
 
-    ctx.font = `900 ${fTitle}px system-ui, -apple-system, Segoe UI, Roboto, Arial`;
-    drawTextPremium(ctx, lineA, padX, y); y += lhA;
+  ctx.fillStyle = "rgba(0,0,0,0.55)";
+  roundRect(ctx, x, y, boxW, boxH, radius);
+  ctx.fill();
+  ctx.restore();
 
-    ctx.font = `900 ${fSub}px system-ui, -apple-system, Segoe UI, Roboto, Arial`;
-    drawTextPremium(ctx, lineB, padX, y); y += lhB;
+  // texto branco limpo
+  ctx.save();
+  ctx.fillStyle = "#fff";
+  ctx.textBaseline = "top";
 
-    ctx.font = `800 ${fAddr}px system-ui, -apple-system, Segoe UI, Roboto, Arial`;
+  let ty = y + Math.round(pad * 0.6);
+
+  ctx.font = `900 ${fSmall}px system-ui, -apple-system, Segoe UI, Roboto, Arial`;
+  ctx.fillText(line1, x + pad, ty);
+  ty += lh1;
+
+  ctx.font = `900 ${fSmall}px system-ui, -apple-system, Segoe UI, Roboto, Arial`;
+  ctx.fillText(line2, x + pad, ty);
+  ty += lh2;
+
+  if(addrLines.length){
+    ty += Math.round(base * 0.006);
+    ctx.font = `650 ${fTiny}px system-ui, -apple-system, Segoe UI, Roboto, Arial`;
     for(const l of addrLines){
-      drawTextPremium(ctx, l, padX, y); y += lhC;
-    }
-
-  } else {
-    // desenha premium alinhado
-    let y = h - padBottom - layout.totalH;
-
-    ctx.textBaseline = "top";
-
-    // Linha 1 em colunas
-    ctx.font = `900 ${fTitle}px system-ui, -apple-system, Segoe UI, Roboto, Arial`;
-    ctx.textAlign = "left";
-    drawTextPremium(ctx, col1, padX, y);
-
-    const x2 = padX + layout.w1 + colGap;
-    drawTextPremium(ctx, col2, x2, y);
-
-    const x3 = x2 + layout.w2 + colGap;
-    drawTextPremium(ctx, col3, x3, y);
-    y += layout.lh1;
-
-    // Linha 2: AZ à esquerda / Data à direita
-    ctx.font = `900 ${fSub}px system-ui, -apple-system, Segoe UI, Roboto, Arial`;
-    ctx.textAlign = "left";
-    drawTextPremium(ctx, left2, padX, y);
-
-    ctx.textAlign = "right";
-    drawTextPremium(ctx, right2, w - padX, y);
-    y += layout.lh2;
-
-    // Endereço (1..3 linhas)
-    ctx.font = `800 ${fAddr}px system-ui, -apple-system, Segoe UI, Roboto, Arial`;
-    ctx.textAlign = "left";
-    for(const l of layout.addrLines){
-      drawTextPremium(ctx, l, padX, y);
-      y += layout.lh3;
+      ctx.fillText(l, x + pad, ty);
+      ty += lhA;
     }
   }
+
+  ctx.restore();
 
   // exporta JPG
   return new Promise((resolve, reject)=>{
@@ -478,6 +406,7 @@ async function stampAndCompress(file, meta, maxWidth = 1800, quality = 0.85){
 // ================= UI / RENDER =================
 function renderChecklist(){
   const container = document.getElementById("checklistContainer");
+  if(!container) return;
   container.innerHTML = "";
 
   secoes.forEach((titulo, idx)=>{
@@ -515,7 +444,7 @@ function renderChecklist(){
     f.multiple=true;
 
     f.onchange = async (e)=>{
-      const siteId = document.getElementById("siteId").value.trim();
+      const siteId = document.getElementById("siteId")?.value.trim();
       if(!siteId){
         alert("Informe o ID do site antes de adicionar fotos.");
         e.target.value = "";
@@ -555,7 +484,7 @@ function renderChecklist(){
           userAgent: navigator.userAgent
         };
 
-        const stamped = await stampAndCompress(file, meta, 1800, 0.85);
+        const stamped = await stampAndCompress(file, meta, 1800, 0.88);
         meta.savedName = stamped.name;
 
         uploadQueue.push({
@@ -586,6 +515,7 @@ function renderChecklist(){
 
 function renderImages(secaoEl, titulo){
   const c = secaoEl.querySelector(".img-container");
+  if(!c) return;
   c.innerHTML = "";
 
   const items = state[titulo] || [];
@@ -644,9 +574,9 @@ function renderImages(secaoEl, titulo){
     c.appendChild(wrap);
   });
 
-  const ct = document.createElement("div");
+  const ct=document.createElement("div");
   ct.className="contador";
-  ct.innerText = `Fotos: ${items.length}/10`;
+  ct.innerText=`Fotos: ${items.length}/10`;
   c.appendChild(ct);
 }
 
@@ -696,7 +626,7 @@ async function processQueue(){
 
 // ================= BOTÃO ENVIAR =================
 async function enviarRelatorio(){
-  const siteId = document.getElementById("siteId").value.trim();
+  const siteId = document.getElementById("siteId")?.value.trim();
   if(!siteId){
     alert("Informe o ID do site");
     return;
