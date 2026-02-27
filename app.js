@@ -1,5 +1,5 @@
 /* =========================
-   NOVO (SEM ALTERAR)
+   NOVO (mantido, só com correção mínima para section dinâmico)
 ========================= */
 const WORKER = "https://rfi-20.caua-viniciusosc12.workers.dev/";
 const CHUNK_SIZE = 1024 * 1024; // 1MB
@@ -16,7 +16,7 @@ async function compressImage(file, quality = 0.7) {
     const img = new Image();
     const reader = new FileReader();
 
-    reader.onload = e => img.src = e.target.result;
+    reader.onload = e => (img.src = e.target.result);
 
     img.onload = () => {
       const canvas = document.createElement("canvas");
@@ -30,9 +30,13 @@ async function compressImage(file, quality = 0.7) {
       const ctx = canvas.getContext("2d");
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
-      canvas.toBlob(blob => {
-        resolve(new File([blob], file.name, { type: "image/jpeg" }));
-      }, "image/jpeg", quality);
+      canvas.toBlob(
+        blob => {
+          resolve(new File([blob], file.name, { type: "image/jpeg" }));
+        },
+        "image/jpeg",
+        quality
+      );
     };
 
     reader.readAsDataURL(file);
@@ -66,11 +70,9 @@ function criarBarra(container) {
    UPLOAD COM CHUNK + RETRY
 ========================= */
 async function uploadArquivo(file, siteId, section, progressBar) {
-
   const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
 
   for (let i = 0; i < totalChunks; i++) {
-
     const start = i * CHUNK_SIZE;
     const end = Math.min(start + CHUNK_SIZE, file.size);
     const chunk = file.slice(start, end);
@@ -79,9 +81,7 @@ async function uploadArquivo(file, siteId, section, progressBar) {
     let enviado = false;
 
     while (!enviado && tentativa < MAX_RETRY) {
-
       try {
-
         const formData = new FormData();
         formData.append("file", chunk, file.name);
         formData.append("siteId", siteId);
@@ -95,7 +95,6 @@ async function uploadArquivo(file, siteId, section, progressBar) {
         if (!resp.ok) throw new Error("Falha no chunk");
 
         enviado = true;
-
       } catch (err) {
         tentativa++;
         if (tentativa >= MAX_RETRY) {
@@ -119,20 +118,13 @@ async function uploadArquivo(file, siteId, section, progressBar) {
    FILA INTELIGENTE
 ========================= */
 async function processQueue() {
-
   if (uploading) return;
   uploading = true;
 
   while (uploadQueue.length > 0) {
-
     const job = uploadQueue.shift();
 
-    await uploadArquivo(
-      job.file,
-      job.siteId,
-      job.section,
-      job.progressBar
-    );
+    await uploadArquivo(job.file, job.siteId, job.section, job.progressBar);
   }
 
   uploading = false;
@@ -140,11 +132,10 @@ async function processQueue() {
 
 /* =========================
    INTEGRAÇÃO INPUT FILE
+   (mantido, só corrigido para aceitar section dinâmico)
 ========================= */
 function ativarUpload(input, container, section) {
-
   input.onchange = async e => {
-
     const files = Array.from(e.target.files);
     const siteId = document.getElementById("siteId").value;
 
@@ -153,8 +144,10 @@ function ativarUpload(input, container, section) {
       return;
     }
 
-    for (let file of files) {
+    // ✅ pega o nome atual da seção no momento do envio
+    const sectionName = typeof section === "function" ? section() : section;
 
+    for (let file of files) {
       const progressBar = criarBarra(container);
 
       const compressed = await compressImage(file);
@@ -162,7 +155,7 @@ function ativarUpload(input, container, section) {
       uploadQueue.push({
         file: compressed,
         siteId,
-        section,
+        section: sectionName,
         progressBar
       });
     }
@@ -172,9 +165,7 @@ function ativarUpload(input, container, section) {
 }
 
 /* =========================
-   ANTIGO (RESTAURADO SEM ALTERAR)
-   - COM UMA ÚNICA LIGAÇÃO NO RENDER:
-     substitui o f.onchange antigo por ativarUpload(...)
+   ANTIGO (restaurado) + correção de renomear seção
 ========================= */
 
 let adminMode = false;
@@ -194,193 +185,198 @@ let state = {};
 // ADMIN MODE
 // ============================
 
-function toggleAdmin(){
-
-    if(!adminMode){
-        const senha = prompt("Senha do administrador:");
-        if(senha !== ADMIN_PASSWORD){
-            alert("Senha incorreta.");
-            return;
-        }
-
-        adminMode = true;
-        document.getElementById("btnNovaSecao").style.display="inline-block";
-        criarBotaoSalvar();
-        alert("Modo administrador ativado");
-
-    }else{
-
-        adminMode = false;
-        document.getElementById("btnNovaSecao").style.display="none";
-        removerBotaoSalvar();
-        alert("Modo administrador desativado");
+function toggleAdmin() {
+  if (!adminMode) {
+    const senha = prompt("Senha do administrador:");
+    if (senha !== ADMIN_PASSWORD) {
+      alert("Senha incorreta.");
+      return;
     }
 
-    renderChecklist();
+    adminMode = true;
+    document.getElementById("btnNovaSecao").style.display = "inline-block";
+    criarBotaoSalvar();
+    alert("Modo administrador ativado");
+  } else {
+    adminMode = false;
+    document.getElementById("btnNovaSecao").style.display = "none";
+    removerBotaoSalvar();
+    alert("Modo administrador desativado");
+  }
+
+  renderChecklist();
 }
 
-function criarBotaoSalvar(){
+function criarBotaoSalvar() {
+  if (document.getElementById("btnSalvarConfig")) return;
 
-    if(document.getElementById("btnSalvarConfig")) return;
+  const btn = document.createElement("button");
+  btn.id = "btnSalvarConfig";
+  btn.innerText = "Salvar Configuração";
+  btn.style.margin = "10px";
+  btn.onclick = salvarConfiguracao;
 
-    const btn = document.createElement("button");
-    btn.id = "btnSalvarConfig";
-    btn.innerText = "Salvar Configuração";
-    btn.style.margin = "10px";
-    btn.onclick = salvarConfiguracao;
-
-    document.body.appendChild(btn);
+  document.body.appendChild(btn);
 }
 
-function removerBotaoSalvar(){
-    const btn = document.getElementById("btnSalvarConfig");
-    if(btn) btn.remove();
+function removerBotaoSalvar() {
+  const btn = document.getElementById("btnSalvarConfig");
+  if (btn) btn.remove();
 }
 
 // ============================
 // SEÇÕES
 // ============================
 
-function criarSecao(){
-    if(!adminMode) return;
-    const nome = prompt("Nome da nova seção:");
-    if(!nome) return;
-    secoes.push(nome.toUpperCase());
-    renderChecklist();
+function criarSecao() {
+  if (!adminMode) return;
+  const nome = prompt("Nome da nova seção:");
+  if (!nome) return;
+  secoes.push(nome.toUpperCase());
+  renderChecklist();
 }
 
-function excluirSecao(idx){
-    if(!adminMode) return;
-    if(confirm("Deseja excluir esta seção e todas as fotos?")){
-        const titulo = secoes[idx];
-        delete state[titulo];
-        secoes.splice(idx,1);
-        renderChecklist();
-    }
+function excluirSecao(idx) {
+  if (!adminMode) return;
+  if (confirm("Deseja excluir esta seção e todas as fotos?")) {
+    const titulo = secoes[idx];
+    delete state[titulo];
+    secoes.splice(idx, 1);
+    renderChecklist();
+  }
 }
 
 // ============================
 // RENDER
 // ============================
 
-function renderChecklist(){
+function renderChecklist() {
+  const container = document.getElementById("checklistContainer");
+  container.innerHTML = "";
 
-    const container =
-      document.getElementById("checklistContainer");
+  secoes.forEach((titulo, idx) => {
+    const s = document.createElement("section");
 
-    container.innerHTML = "";
+    if (adminMode) {
+      const tools = document.createElement("div");
+      tools.className = "admin-tools";
 
-    secoes.forEach((titulo, idx)=>{
+      const del = document.createElement("button");
+      del.className = "btn-danger";
+      del.innerText = "Excluir seção";
+      del.onclick = () => excluirSecao(idx);
 
-        const s = document.createElement("section");
+      tools.appendChild(del);
+      s.appendChild(tools);
+    }
 
-        if(adminMode){
-            const tools = document.createElement("div");
-            tools.className="admin-tools";
+    const t = document.createElement("input");
+    t.className = "edit-title";
+    t.value = titulo;
+    t.disabled = !adminMode;
 
-            const del = document.createElement("button");
-            del.className="btn-danger";
-            del.innerText="Excluir seção";
-            del.onclick=()=>excluirSecao(idx);
+    // ✅ correção: ao renomear, salva de verdade (move state e atualiza fila)
+    t.onchange = e => {
+      const antigo = secoes[idx];
+      const novo = String(e.target.value || "").trim().toUpperCase();
 
-            tools.appendChild(del);
-            s.appendChild(tools);
-        }
+      if (!novo) {
+        e.target.value = antigo;
+        return;
+      }
 
-        const t = document.createElement("input");
-        t.className="edit-title";
-        t.value=titulo;
-        t.disabled=!adminMode;
-        t.onchange=e=>secoes[idx]=e.target.value;
-        s.appendChild(t);
+      secoes[idx] = novo;
 
-        const f = document.createElement("input");
-        f.type="file";
-        f.accept="image/*";
-        f.multiple=true;
+      if (state[antigo]) {
+        state[novo] = state[antigo];
+        delete state[antigo];
+      }
 
-        // ✅ CORREÇÃO: em vez do onchange antigo, liga no NOVO sem alterar o NOVO.
-        // O container passado aqui é o mesmo "imgs" que já existia no antigo.
-        s.appendChild(f);
+      uploadQueue.forEach(job => {
+        if (job.section === antigo) job.section = novo;
+      });
 
-        const imgs=document.createElement("div");
-        s.appendChild(imgs);
+      renderChecklist();
+    };
 
-        ativarUpload(f, imgs, titulo);
+    s.appendChild(t);
 
-        // Mantém o render antigo das imagens (state) se você ainda usa em algum lugar
-        renderImages(s,titulo);
-        container.appendChild(s);
-    });
+    const f = document.createElement("input");
+    f.type = "file";
+    f.accept = "image/*";
+    f.multiple = true;
+    s.appendChild(f);
+
+    const imgs = document.createElement("div");
+    s.appendChild(imgs);
+
+    // ✅ usa o nome atual da seção (dinâmico)
+    ativarUpload(f, imgs, () => secoes[idx]);
+
+    renderImages(s, titulo);
+    container.appendChild(s);
+  });
 }
 
-function renderImages(secao,titulo){
+function renderImages(secao, titulo) {
+  const c = secao.querySelector("div:last-child");
+  c.innerHTML = "";
 
-    const c=secao.querySelector("div:last-child");
-    c.innerHTML="";
+  if (!state[titulo]) return;
 
-    if(!state[titulo]) return;
+  state[titulo].forEach((src, i) => {
+    const img = document.createElement("img");
+    img.src = src;
 
-    state[titulo].forEach((src,i)=>{
+    img.onclick = () => {
+      if (confirm("Remover foto?")) {
+        state[titulo].splice(i, 1);
+        renderImages(secao, titulo);
+      }
+    };
 
-        const img=document.createElement("img");
-        img.src=src;
+    c.appendChild(img);
+  });
 
-        img.onclick=()=>{
-            if(confirm("Remover foto?")){
-                state[titulo].splice(i,1);
-                renderImages(secao,titulo);
-            }
-        };
-
-        c.appendChild(img);
-    });
-
-    const ct=document.createElement("div");
-    ct.className="contador";
-    ct.innerText=`Fotos: ${state[titulo].length}/10`;
-    c.appendChild(ct);
+  const ct = document.createElement("div");
+  ct.className = "contador";
+  ct.innerText = `Fotos: ${state[titulo].length}/10`;
+  c.appendChild(ct);
 }
 
 // ============================
 // CONFIGURAÇÃO REMOTA
 // ============================
 
-async function salvarConfiguracao(){
+async function salvarConfiguracao() {
+  try {
+    await fetch(WORKER + "?config=true", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ secoes })
+    });
 
-    try{
-        await fetch(WORKER + "?config=true", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ secoes })
-        });
-
-        alert("Configuração salva com sucesso!");
-    }
-    catch(e){
-        alert("Erro ao salvar configuração");
-    }
+    alert("Configuração salva com sucesso!");
+  } catch (e) {
+    alert("Erro ao salvar configuração");
+  }
 }
 
-async function carregarConfiguracao(){
+async function carregarConfiguracao() {
+  try {
+    const r = await fetch(WORKER + "?getconfig=true");
 
-    try{
-        const r = await fetch(
-          WORKER + "?getconfig=true"
-        );
-
-        if(r.ok){
-            const data = await r.json();
-            if(data.secoes){
-                secoes = data.secoes;
-            }
-        }
+    if (r.ok) {
+      const data = await r.json();
+      if (data.secoes) {
+        secoes = data.secoes;
+      }
     }
-    catch(e){
-        console.log("Sem configuração remota");
-    }
+  } catch (e) {
+    console.log("Sem configuração remota");
+  }
 
-    renderChecklist();
+  renderChecklist();
 }
 
 // ============================
