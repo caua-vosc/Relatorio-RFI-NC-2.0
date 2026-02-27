@@ -14,9 +14,7 @@ let secoes = [
 
 let state = {};
 
-// ============================
-// ADMIN MODE
-// ============================
+// ================= ADMIN =================
 
 function toggleAdmin(){
 
@@ -33,7 +31,6 @@ function toggleAdmin(){
         alert("Modo administrador ativado");
 
     }else{
-
         adminMode = false;
         document.getElementById("btnNovaSecao").style.display="none";
         removerBotaoSalvar();
@@ -44,26 +41,20 @@ function toggleAdmin(){
 }
 
 function criarBotaoSalvar(){
-
     if(document.getElementById("btnSalvarConfig")) return;
-
     const btn = document.createElement("button");
-    btn.id = "btnSalvarConfig";
-    btn.innerText = "Salvar Configuração";
-    btn.style.margin = "10px";
-    btn.onclick = salvarConfiguracao;
-
+    btn.id="btnSalvarConfig";
+    btn.innerText="Salvar Configuração";
+    btn.onclick=salvarConfiguracao;
     document.body.appendChild(btn);
 }
 
 function removerBotaoSalvar(){
-    const btn = document.getElementById("btnSalvarConfig");
+    const btn=document.getElementById("btnSalvarConfig");
     if(btn) btn.remove();
 }
 
-// ============================
-// SEÇÕES
-// ============================
+// ================= SEÇÕES =================
 
 function criarSecao(){
     if(!adminMode) return;
@@ -75,7 +66,7 @@ function criarSecao(){
 
 function excluirSecao(idx){
     if(!adminMode) return;
-    if(confirm("Deseja excluir esta seção e todas as fotos?")){
+    if(confirm("Excluir seção?")){
         const titulo = secoes[idx];
         delete state[titulo];
         secoes.splice(idx,1);
@@ -83,46 +74,38 @@ function excluirSecao(idx){
     }
 }
 
-// ============================
-// RENDER
-// ============================
+// ================= RENDER =================
 
 function renderChecklist(){
 
     const container =
       document.getElementById("checklistContainer");
 
-    container.innerHTML = "";
+    container.innerHTML="";
 
     secoes.forEach((titulo, idx)=>{
 
-        const s = document.createElement("section");
+        const s=document.createElement("section");
 
         if(adminMode){
-            const tools = document.createElement("div");
-            tools.className="admin-tools";
-
-            const del = document.createElement("button");
-            del.className="btn-danger";
+            const del=document.createElement("button");
             del.innerText="Excluir seção";
             del.onclick=()=>excluirSecao(idx);
-
-            tools.appendChild(del);
-            s.appendChild(tools);
+            s.appendChild(del);
         }
 
-        const t = document.createElement("input");
-        t.className="edit-title";
+        const t=document.createElement("input");
         t.value=titulo;
         t.disabled=!adminMode;
         t.onchange=e=>secoes[idx]=e.target.value;
         s.appendChild(t);
 
-        const f = document.createElement("input");
+        const f=document.createElement("input");
         f.type="file";
         f.accept="image/*";
         f.multiple=true;
 
+        // 🚀 Compressão automática
         f.onchange=e=>{
 
             const files=
@@ -131,12 +114,47 @@ function renderChecklist(){
             if(!state[titulo]) state[titulo]=[];
 
             files.forEach(file=>{
-                const r=new FileReader();
-                r.onload=ev=>{
-                    state[titulo].push(ev.target.result);
+
+                const img=new Image();
+                const reader=new FileReader();
+
+                reader.onload=ev=>{
+                    img.src=ev.target.result;
+                };
+
+                img.onload=()=>{
+
+                    const canvas=
+                      document.createElement("canvas");
+                    const ctx=
+                      canvas.getContext("2d");
+
+                    const maxWidth=1280;
+                    const scale=
+                      img.width>maxWidth ?
+                      maxWidth/img.width : 1;
+
+                    canvas.width=
+                      img.width*scale;
+                    canvas.height=
+                      img.height*scale;
+
+                    ctx.drawImage(
+                      img,0,0,
+                      canvas.width,
+                      canvas.height
+                    );
+
+                    const compressed=
+                      canvas.toDataURL(
+                        "image/jpeg",0.7
+                      );
+
+                    state[titulo].push(compressed);
                     renderImages(s,titulo);
                 };
-                r.readAsDataURL(file);
+
+                reader.readAsDataURL(file);
             });
         };
 
@@ -158,94 +176,76 @@ function renderImages(secao,titulo){
     if(!state[titulo]) return;
 
     state[titulo].forEach((src,i)=>{
-
         const img=document.createElement("img");
         img.src=src;
-
         img.onclick=()=>{
             if(confirm("Remover foto?")){
                 state[titulo].splice(i,1);
                 renderImages(secao,titulo);
             }
         };
-
         c.appendChild(img);
     });
 
     const ct=document.createElement("div");
-    ct.className="contador";
-    ct.innerText=`Fotos: ${state[titulo].length}/10`;
+    ct.innerText=
+      `Fotos: ${state[titulo].length}/10`;
     c.appendChild(ct);
 }
 
-// ============================
-// CONFIGURAÇÃO REMOTA
-// ============================
+// ================= CONFIG =================
 
 async function salvarConfiguracao(){
 
-    try{
-        await fetch(WORKER + "?config=true", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ secoes })
-        });
+    await fetch(WORKER+"?config=true",{
+        method:"POST",
+        headers:{
+          "Content-Type":"application/json"
+        },
+        body:JSON.stringify({secoes})
+    });
 
-        alert("Configuração salva com sucesso!");
-    }
-    catch(e){
-        alert("Erro ao salvar configuração");
-    }
+    alert("Configuração salva!");
 }
 
 async function carregarConfiguracao(){
 
     try{
-        const r = await fetch(
-          WORKER + "?getconfig=true"
+        const r=await fetch(
+          WORKER+"?getconfig=true"
         );
 
         if(r.ok){
-            const data = await r.json();
-            if(data.secoes){
-                secoes = data.secoes;
-            }
+            const data=await r.json();
+            if(data.secoes)
+                secoes=data.secoes;
         }
-    }
-    catch(e){
-        console.log("Sem configuração remota");
-    }
+    }catch(e){}
 
     renderChecklist();
 }
 
-// ============================
-// ENVIO RELATÓRIO
-// ============================
+// ================= ENVIO =================
 
 async function enviarRelatorio(){
 
-  const siteId =
-    document.getElementById("siteId").value.trim();
+    const siteId=
+      document.getElementById("siteId").value.trim();
 
-  if(!siteId){
-    alert("Informe o ID do site");
-    return;
-  }
+    if(!siteId){
+        alert("Informe o ID do site");
+        return;
+    }
 
-  try {
-    await uploadParaNextcloud(siteId, state);
-    alert("Upload concluído com sucesso!");
-    state = {};
-    renderChecklist();
-  }
-  catch(e){
-    alert("Erro no envio: " + e.message);
-  }
+    try{
+        await uploadParaNextcloud(siteId,state);
+        alert("Upload concluído!");
+        state={};
+        renderChecklist();
+    }
+    catch(e){
+        alert("Erro: "+e.message);
+    }
 }
-
-// ============================
-// INICIALIZAÇÃO
-// ============================
 
 carregarConfiguracao();
