@@ -1,4 +1,4 @@
-async function uploadFileToWorker(siteId, section, file, onProgress){
+async function uploadFileToWorker(siteId, section, file, metaObj, onProgress){
   return new Promise((resolve, reject)=>{
     const xhr = new XMLHttpRequest();
     xhr.open("POST", "https://rfi-20.caua-viniciusosc12.workers.dev/", true);
@@ -13,11 +13,8 @@ async function uploadFileToWorker(siteId, section, file, onProgress){
     xhr.onload = ()=>{
       const txt = xhr.responseText || "";
       if(xhr.status >= 200 && xhr.status < 300){
-        try{
-          resolve(JSON.parse(txt));
-        } catch {
-          resolve({ success:true });
-        }
+        try { resolve(JSON.parse(txt)); }
+        catch { resolve({ success:true }); }
       } else {
         reject(new Error(txt || ("HTTP " + xhr.status)));
       }
@@ -29,6 +26,7 @@ async function uploadFileToWorker(siteId, section, file, onProgress){
     fd.append("siteId", siteId);
     fd.append("section", section);
     fd.append("file", file, file.name);
+    fd.append("meta", JSON.stringify(metaObj || {}));
 
     xhr.send(fd);
   });
