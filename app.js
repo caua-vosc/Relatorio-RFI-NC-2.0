@@ -16,24 +16,22 @@ let secoes = [
   "SITE FINALIZADO"
 ];
 
-// Guarda previews locais (blob urls) para o layout/contador
-let state = {}; // { [secaoTitulo]: [ { url: "blob:..." } ] }
+let state = {}; // { "TITULO": [{ id, previewUrl, name }] }
 
 /* =========================
-   FILA DE UPLOAD
+   FILA DE UPLOAD (NOVO)
 ========================= */
 let uploadQueue = [];
 let uploading = false;
 
 /* =========================
-   COMPRESSÃO DE IMAGEM
+   COMPRESSÃO DE IMAGEM (NOVO)
 ========================= */
 async function compressImage(file, quality = 0.7) {
-  return new Promise((resolve, reject) => {
+  return new Promise(resolve => {
     const img = new Image();
     const reader = new FileReader();
 
-    reader.onerror = () => reject(new Error("Falha ao ler imagem"));
     reader.onload = e => (img.src = e.target.result);
 
     img.onload = () => {
@@ -50,7 +48,8 @@ async function compressImage(file, quality = 0.7) {
 
       canvas.toBlob(
         blob => {
-          if (!blob) return reject(new Error("Falha ao comprimir imagem"));
+          // fallback de segurança
+          if (!blob) return resolve(file);
           resolve(new File([blob], file.name, { type: "image/jpeg" }));
         },
         "image/jpeg",
@@ -58,13 +57,12 @@ async function compressImage(file, quality = 0.7) {
       );
     };
 
-    img.onerror = () => reject(new Error("Imagem inválida"));
     reader.readAsDataURL(file);
   });
 }
 
 /* =========================
-   UI: BARRA DE PROGRESSO
+   BARRA DE PROGRESSO (NOVO)
 ========================= */
 function criarBarra(container) {
   const wrapper = document.createElement("div");
@@ -90,13 +88,30 @@ function criarBarra(container) {
 }
 
 /* =========================
-   UPLOAD: CHUNK + RETRY
-   (Mantém sua atualização)
+   UPLOAD COM CHUNK + RETRY (NOVO)
 ========================= */
-async function uploadArquivo(file, siteId, section, progressBar) {
+async function uploadArquivo(job) {
+  const { file, siteId, section, progressBar } = job;
+
+  // Se foi cancelado antes de iniciar
+  if (job.cancelled) {
+    progressBar.style.background = "#999";
+    progressBar.style.width = "100%";
+    progressBar.innerText = "Cancelado";
+    return;
+  }
+
   const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
 
   for (let i = 0; i < totalChunks; i++) {
+    // Cancelamento durante a fila
+    if (job.cancelled) {
+      progressBar.style.background = "#999";
+      progressBar.style.width = "100%";
+      progressBar.innerText = "Cancelado";
+      return;
+    }
+
     const start = i * CHUNK_SIZE;
     const end = Math.min(start + CHUNK_SIZE, file.size);
     const chunk = file.slice(start, end);
@@ -110,11 +125,14 @@ async function uploadArquivo(file, siteId, section, progressBar) {
         formData.append("file", chunk, file.name);
         formData.append("siteId", siteId);
         formData.append("section", section);
-        // opcional: envie metadados do chunk se seu Worker precisar
         formData.append("chunkIndex", String(i));
         formData.append("totalChunks", String(totalChunks));
 
-        const resp = await fetch(WORKER, { method: "POST", body: formData });
+        const resp = await fetch(WORKER, {
+          method: "POST",
+          body: formData
+        });
+
         if (!resp.ok) throw new Error("Falha no chunk");
 
         enviado = true;
@@ -138,7 +156,7 @@ async function uploadArquivo(file, siteId, section, progressBar) {
 }
 
 /* =========================
-   FILA INTELIGENTE
+   PROCESSAR FILA (NOVO)
 ========================= */
 async function processQueue() {
   if (uploading) return;
@@ -147,10 +165,10 @@ async function processQueue() {
   while (uploadQueue.length > 0) {
     const job = uploadQueue.shift();
     try {
-      await uploadArquivo(job.file, job.siteId, job.section, job.progressBar);
+      await uploadArquivo(job);
     } catch (e) {
-      // Mantém a fila andando mesmo se um arquivo falhar
-      console.error("Upload falhou:", e);
+      console.error("Erro no upload:", e);
+      // continua para próximos jobs
     }
   }
 
@@ -158,7 +176,7 @@ async function processQueue() {
 }
 
 /* =========================
-   ADMIN MODE
+   ADMIN MODE (ANTIGO)
 ========================= */
 function toggleAdmin() {
   if (!adminMode) {
@@ -202,7 +220,7 @@ function removerBotaoSalvar() {
 }
 
 /* =========================
-   SEÇÕES
+   SEÇÕES (ANTIGO)
 ========================= */
 function criarSecao() {
   if (!adminMode) return;
@@ -216,12 +234,6 @@ function excluirSecao(idx) {
   if (!adminMode) return;
   if (confirm("Deseja excluir esta seção e todas as fotos?")) {
     const titulo = secoes[idx];
-    // limpa URLs blob para não vazar memória
-    if (state[titulo]) {
-      state[titulo].forEach(x => {
-        try { URL.revokeObjectURL(x.url); } catch {}
-      });
-    }
     delete state[titulo];
     secoes.splice(idx, 1);
     renderChecklist();
@@ -229,12 +241,96 @@ function excluirSecao(idx) {
 }
 
 /* =========================
-   RENDER / LAYOUT
+   PREVIEW / UI
+========================= */
+function ensureStateSection(titulo) {
+  if (!state[titulo]) state[titulo] = [];
+}
+
+function addPreview(titulo, file, secaoEl) {
+  ensureStateSection(titulo);
+
+  // limite 10 por seção
+  if (state[titulo].length >= 10) return null;
+
+  const id = crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random());
+  const previewUrl = URL.createObjectURL(file);
+
+  const item = { id, previewUrl, name: file.name };
+  state[titulo].push(item);
+
+  renderImages(secaoEl, titulo);
+  return item;
+}
+
+function removePreview(titulo, id) {
+  if (!state[titulo]) return;
+  const idx = state[titulo].findIndex(x => x.id === id);
+  if (idx >= 0) {
+    try {
+      URL.revokeObjectURL(state[titulo][idx].previewUrl);
+    } catch {}
+    state[titulo].splice(idx, 1);
+  }
+}
+
+/* =========================
+   INTEGRAÇÃO INPUT FILE (NOVO + UI)
+========================= */
+function ativarUpload(input, progressContainer, secaoEl, sectionTitle) {
+  input.onchange = async e => {
+    const files = Array.from(e.target.files || []);
+    const siteId = document.getElementById("siteId")?.value?.trim();
+
+    if (!siteId) {
+      alert("Informe o ID do site antes de enviar fotos");
+      input.value = "";
+      return;
+    }
+
+    // adiciona e enfileira
+    for (let file of files) {
+      ensureStateSection(sectionTitle);
+
+      if (state[sectionTitle].length >= 10) {
+        alert(`Limite de 10 fotos atingido na seção: ${sectionTitle}`);
+        break;
+      }
+
+      // preview imediato (antes da compressão)
+      const previewItem = addPreview(sectionTitle, file, secaoEl);
+      if (!previewItem) continue;
+
+      const progressBar = criarBarra(progressContainer);
+
+      // compressão + fila
+      const compressed = await compressImage(file);
+
+      const job = {
+        id: previewItem.id,
+        file: compressed,
+        siteId,
+        section: sectionTitle,
+        progressBar,
+        cancelled: false
+      };
+
+      uploadQueue.push(job);
+    }
+
+    // reset pra permitir selecionar o mesmo arquivo novamente
+    input.value = "";
+    processQueue();
+  };
+}
+
+/* =========================
+   RENDER (ANTIGO restaurado)
 ========================= */
 function renderChecklist() {
   const container = document.getElementById("checklistContainer");
   if (!container) {
-    console.error("Elemento #checklistContainer não encontrado no HTML.");
+    console.error('Elemento #checklistContainer não encontrado no HTML.');
     return;
   }
 
@@ -243,6 +339,7 @@ function renderChecklist() {
   secoes.forEach((titulo, idx) => {
     const s = document.createElement("section");
 
+    // ferramentas admin
     if (adminMode) {
       const tools = document.createElement("div");
       tools.className = "admin-tools";
@@ -256,106 +353,66 @@ function renderChecklist() {
       s.appendChild(tools);
     }
 
+    // título editável no admin
     const t = document.createElement("input");
     t.className = "edit-title";
     t.value = titulo;
     t.disabled = !adminMode;
+
     t.onchange = e => {
-      // renomeia seção e move o estado junto
       const novo = String(e.target.value || "").toUpperCase().trim();
       if (!novo) {
         e.target.value = secoes[idx];
         return;
       }
-      if (novo === secoes[idx]) return;
 
+      // renomeia chave do state
       const antigo = secoes[idx];
-      secoes[idx] = novo;
-
-      if (state[antigo]) {
-        state[novo] = state[antigo];
-        delete state[antigo];
+      if (antigo !== novo) {
+        if (state[antigo]) {
+          state[novo] = state[antigo];
+          delete state[antigo];
+        }
+        secoes[idx] = novo;
       }
-
       renderChecklist();
     };
+
     s.appendChild(t);
 
+    // input file
     const f = document.createElement("input");
     f.type = "file";
     f.accept = "image/*";
     f.multiple = true;
-
-    // containers: 1) progresso 2) imagens
-    const progressWrap = document.createElement("div");
-    const imgs = document.createElement("div");
-
     s.appendChild(f);
-    s.appendChild(progressWrap);
+
+    // área de imagens (preview)
+    const imgs = document.createElement("div");
     s.appendChild(imgs);
 
-    // handler merge: preview + fila otimizada
-    f.onchange = async e => {
-      const files = Array.from(e.target.files || []);
-      const siteId = document.getElementById("siteId")?.value?.trim();
+    // área de progressos (barras)
+    const progressArea = document.createElement("div");
+    progressArea.style.marginTop = "8px";
+    s.appendChild(progressArea);
 
-      if (!siteId) {
-        alert("Informe o ID do site antes de enviar fotos");
-        f.value = "";
-        return;
-      }
-
-      if (!files.length) return;
-
-      // limita 10 previews por seção como no antigo
-      if (!state[titulo]) state[titulo] = [];
-
-      const remaining = Math.max(0, 10 - state[titulo].length);
-      const limitedFiles = files.slice(0, remaining);
-
-      if (limitedFiles.length < files.length) {
-        alert("Limite de 10 fotos por seção. Algumas foram ignoradas.");
-      }
-
-      for (const file of limitedFiles) {
-        // preview imediato
-        const url = URL.createObjectURL(file);
-        state[titulo].push({ url });
-        renderImages(s, titulo);
-
-        // barra + compress + fila
-        const progressBar = criarBarra(progressWrap);
-        try {
-          const compressed = await compressImage(file);
-          uploadQueue.push({
-            file: compressed,
-            siteId,
-            section: titulo, // usa o título atual como seção no Worker
-            progressBar
-          });
-        } catch (err) {
-          progressBar.style.background = "red";
-          progressBar.innerText = "Erro";
-          console.error(err);
-        }
-      }
-
-      processQueue();
-      f.value = "";
-    };
+    // ativa o upload (novo)
+    ativarUpload(f, progressArea, s, titulo);
 
     renderImages(s, titulo);
     container.appendChild(s);
   });
 }
 
-function renderImages(secao, titulo) {
-  const containers = secao.querySelectorAll("div");
-  const imgsContainer = containers[containers.length - 1]; // último div = imagens
+function renderImages(secaoEl, titulo) {
+  // div de imagens é o 1º div após o input file (no nosso render: s.appendChild(imgs); s.appendChild(progressArea);)
+  const divs = secaoEl.querySelectorAll("div");
+  const imgsContainer = divs.length ? divs[0] : null;
+  if (!imgsContainer) return;
+
   imgsContainer.innerHTML = "";
 
-  if (!state[titulo]) {
-    // contador mesmo vazio
+  if (!state[titulo] || state[titulo].length === 0) {
     const ct = document.createElement("div");
     ct.className = "contador";
     ct.innerText = `Fotos: 0/10`;
@@ -363,16 +420,23 @@ function renderImages(secao, titulo) {
     return;
   }
 
-  state[titulo].forEach((item, i) => {
+  state[titulo].forEach(item => {
     const img = document.createElement("img");
-    img.src = item.url;
+    img.src = item.previewUrl;
+    img.title = item.name;
 
     img.onclick = () => {
-      if (confirm("Remover foto?")) {
-        try { URL.revokeObjectURL(item.url); } catch {}
-        state[titulo].splice(i, 1);
-        renderImages(secao, titulo);
+      if (!confirm("Remover foto?")) return;
+
+      // remove do state + preview
+      removePreview(titulo, item.id);
+
+      // tenta cancelar job ainda na fila
+      for (const job of uploadQueue) {
+        if (job.id === item.id) job.cancelled = true;
       }
+
+      renderImages(secaoEl, titulo);
     };
 
     imgsContainer.appendChild(img);
@@ -385,7 +449,7 @@ function renderImages(secao, titulo) {
 }
 
 /* =========================
-   CONFIGURAÇÃO REMOTA (mantida)
+   CONFIGURAÇÃO REMOTA (ANTIGO)
 ========================= */
 async function salvarConfiguracao() {
   try {
@@ -406,7 +470,9 @@ async function carregarConfiguracao() {
     const r = await fetch(WORKER + "?getconfig=true");
     if (r.ok) {
       const data = await r.json();
-      if (data.secoes) secoes = data.secoes;
+      if (data.secoes && Array.isArray(data.secoes)) {
+        secoes = data.secoes;
+      }
     }
   } catch (e) {
     console.log("Sem configuração remota");
@@ -418,8 +484,19 @@ async function carregarConfiguracao() {
 /* =========================
    INIT
 ========================= */
-carregarConfiguracao();
+function init() {
+  // garante que botões existam no HTML
+  const btnNova = document.getElementById("btnNovaSecao");
+  if (btnNova) {
+    btnNova.onclick = criarSecao;
+    btnNova.style.display = adminMode ? "inline-block" : "none";
+  }
 
+  const btnAdmin = document.getElementById("btnAdmin");
+  if (btnAdmin) btnAdmin.onclick = toggleAdmin;
+
+  carregarConfiguracao();
 }
 
-carregarConfiguracao();
+// Evita rodar antes do DOM existir
+document.addEventListener("DOMContentLoaded", init);
