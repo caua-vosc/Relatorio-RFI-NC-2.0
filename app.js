@@ -1,13 +1,13 @@
-const WORKER = "https://rfi-20.caua-viniciusosc12.workers.dev/";
+const WORKER = "https://rfi-20.caua-viniciusosc12.workers.dev";
+
+// ============================
+// VERSÃO ATUAL VIA URL
+// ============================
+const urlParams = new URLSearchParams(location.search);
+let CONFIG_VERSION = (urlParams.get("v") || "default").trim() || "default";
 
 let adminMode = false;
 const ADMIN_PASSWORD = "Nova@123";
-
-// ========= VERSÕES POR LINK =========
-// Usa ?v=nome-da-versao (default se não vier)
-const urlParams = new URLSearchParams(location.search);
-let CONFIG_VERSION = (urlParams.get("v") || "default").trim();
-if(!CONFIG_VERSION) CONFIG_VERSION = "default";
 
 let secoes = [
   "FRENTE SITE",
@@ -17,13 +17,104 @@ let secoes = [
   "SITE FINALIZADO"
 ];
 
-// state por seção: itens com preview/status/progresso
 let state = {};
 let uploadQueue = [];
 let uploading = false;
 const MAX_RETRY = 3;
 
-// ================= ADMIN =================
+// ============================
+// LOCAL STORAGE / INDEXEDDB
+// ============================
+const LS_CFG_PREFIX = "cfg_secoes_";
+const LS_VERSIONS = "cfg_versions_list";
+const DB_NAME = "RFI_UPLOADS_DB";
+const DB_STORE = "uploads";
+
+function saveLocalConfig(version, secoesData){
+  try{
+    localStorage.setItem(LS_CFG_PREFIX + version, JSON.stringify(secoesData));
+  }catch{}
+}
+
+function loadLocalConfig(version){
+  try{
+    const raw = localStorage.getItem(LS_CFG_PREFIX + version);
+    if(!raw) return null;
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : null;
+  }catch{
+    return null;
+  }
+}
+
+function saveLocalVersions(list){
+  try{
+    localStorage.setItem(LS_VERSIONS, JSON.stringify([...new Set(list)]));
+  }catch{}
+}
+
+function loadLocalVersions(){
+  try{
+    const raw = localStorage.getItem(LS_VERSIONS);
+    if(!raw) return ["default"];
+    const parsed = JSON.parse(raw);
+    if(Array.isArray(parsed) && parsed.length) return [...new Set(parsed)];
+    return ["default"];
+  }catch{
+    return ["default"];
+  }
+}
+
+function openDB(){
+  return new Promise((resolve, reject)=>{
+    const req = indexedDB.open(DB_NAME, 1);
+
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if(!db.objectStoreNames.contains(DB_STORE)){
+        const store = db.createObjectStore(DB_STORE, { keyPath: "id" });
+        store.createIndex("createdAt", "createdAt");
+      }
+    };
+
+    req.onsuccess = ()=> resolve(req.result);
+    req.onerror = ()=> reject(req.error);
+  });
+}
+
+async function idbPut(record){
+  const db = await openDB();
+  return new Promise((resolve, reject)=>{
+    const tx = db.transaction(DB_STORE, "readwrite");
+    tx.objectStore(DB_STORE).put(record);
+    tx.oncomplete = ()=> resolve(true);
+    tx.onerror = ()=> reject(tx.error);
+  });
+}
+
+async function idbDelete(id){
+  const db = await openDB();
+  return new Promise((resolve, reject)=>{
+    const tx = db.transaction(DB_STORE, "readwrite");
+    tx.objectStore(DB_STORE).delete(id);
+    tx.oncomplete = ()=> resolve(true);
+    tx.onerror = ()=> reject(tx.error);
+  });
+}
+
+async function idbGetAll(){
+  const db = await openDB();
+  return new Promise((resolve, reject)=>{
+    const tx = db.transaction(DB_STORE, "readonly");
+    const req = tx.objectStore(DB_STORE).getAll();
+    req.onsuccess = ()=> resolve(req.result || []);
+    req.onerror = ()=> reject(req.error);
+  });
+}
+
+// ============================
+// ADMIN
+// ============================
 function toggleAdmin(){
   if(!adminMode){
     const senha = prompt("Senha do administrador:");
@@ -36,7 +127,7 @@ function toggleAdmin(){
     if(btn) btn.style.display="inline-block";
     criarBarraVersoesAdmin();
     alert("Modo administrador ativado");
-  } else {
+  }else{
     adminMode = false;
     const btn = document.getElementById("btnNovaSecao");
     if(btn) btn.style.display="none";
@@ -64,7 +155,9 @@ function excluirSecao(idx){
   }
 }
 
-// ================= UI ADMIN: VERSÕES =================
+// ============================
+// UI ADMIN VERSÕES
+// ============================
 function gerarLink(version){
   const v = (version || "default").trim() || "default";
   const base = location.origin + location.pathname;
@@ -100,6 +193,7 @@ function criarBarraVersoesAdmin(){
   row.style.display = "flex";
   row.style.flexWrap = "wrap";
   row.style.gap = "8px";
+  row.style.alignItems = "center";
 
   const btnSave = document.createElement("button");
   btnSave.innerText = "Salvar nesta versão";
@@ -127,7 +221,7 @@ function criarBarraVersoesAdmin(){
   row.appendChild(btnSaveAs);
 
   const btnLink = document.createElement("button");
-  btnLink.innerText = "Gerar link desta versão";
+  btnLink.innerText = "Copiar link desta versão";
   btnLink.onclick = async ()=>{
     const link = gerarLink(CONFIG_VERSION);
     try{
@@ -139,29 +233,31 @@ function criarBarraVersoesAdmin(){
   };
   row.appendChild(btnLink);
 
-  const btnOpen = document.createElement("button");
-  btnOpen.innerText = "Abrir outra versão…";
-  btnOpen.onclick = ()=>{
-    const v = prompt("Digite o nome da versão para abrir:");
-    if(!v) return;
-    location.href = gerarLink(v.trim());
+  // MENU SUSPENSO COM TODAS AS VERSÕES
+  const select = document.createElement("select");
+  select.id = "versionsSelect";
+  select.style.padding = "8px";
+  row.appendChild(select);
+
+  const btnAbrir = document.createElement("button");
+  btnAbrir.innerText = "Abrir versão selecionada";
+  btnAbrir.onclick = ()=>{
+    const sel = document.getElementById("versionsSelect");
+    if(!sel || !sel.value) return;
+    location.href = gerarLink(sel.value);
   };
-  row.appendChild(btnOpen);
+  row.appendChild(btnAbrir);
 
   wrap.appendChild(row);
 
-  // insere antes do checklist
   const checklist = document.getElementById("checklistContainer");
   if(checklist){
     document.body.insertBefore(wrap, checklist);
-  } else {
+  }else{
     document.body.appendChild(wrap);
   }
-}
 
-function atualizarBarraVersoesAdmin(){
-  const info = document.getElementById("adminVersionInfo");
-  if(info) info.innerHTML = `Versão atual: <b>${CONFIG_VERSION}</b>`;
+  preencherMenuVersoes();
 }
 
 function removerBarraVersoesAdmin(){
@@ -169,7 +265,42 @@ function removerBarraVersoesAdmin(){
   if(el) el.remove();
 }
 
-// ================= CONFIG REMOTA (POR VERSÃO) =================
+function atualizarBarraVersoesAdmin(){
+  const info = document.getElementById("adminVersionInfo");
+  if(info) info.innerHTML = `Versão atual: <b>${CONFIG_VERSION}</b>`;
+  preencherMenuVersoes();
+}
+
+async function preencherMenuVersoes(){
+  const select = document.getElementById("versionsSelect");
+  if(!select) return;
+
+  let versions = loadLocalVersions();
+
+  try{
+    const r = await fetch(WORKER + "?listconfigs=true", { cache:"no-store" });
+    if(r.ok){
+      const data = await r.json();
+      if(data && Array.isArray(data.versions) && data.versions.length){
+        versions = [...new Set([...versions, ...data.versions])];
+        saveLocalVersions(versions);
+      }
+    }
+  }catch{}
+
+  select.innerHTML = "";
+  versions.forEach(v=>{
+    const opt = document.createElement("option");
+    opt.value = v;
+    opt.textContent = v;
+    if(v === CONFIG_VERSION) opt.selected = true;
+    select.appendChild(opt);
+  });
+}
+
+// ============================
+// CONFIG REMOTA + LOCAL
+// ============================
 async function salvarConfiguracao(version = CONFIG_VERSION){
   try{
     const v = (version || "default").trim() || "default";
@@ -183,41 +314,99 @@ async function salvarConfiguracao(version = CONFIG_VERSION){
     if(!r.ok) throw new Error(await r.text());
 
     CONFIG_VERSION = v;
+    saveLocalConfig(v, secoes);
+
+    const versions = loadLocalVersions();
+    if(!versions.includes(v)){
+      versions.push(v);
+      saveLocalVersions(versions);
+    }
+
     atualizarBarraVersoesAdmin();
     alert("Configuração salva na versão: " + v);
   } catch(e){
-    alert("Erro ao salvar configuração: " + e.message);
+    // mesmo offline, salva localmente
+    const v = (version || "default").trim() || "default";
+    CONFIG_VERSION = v;
+    saveLocalConfig(v, secoes);
+
+    const versions = loadLocalVersions();
+    if(!versions.includes(v)){
+      versions.push(v);
+      saveLocalVersions(versions);
+    }
+
+    atualizarBarraVersoesAdmin();
+    alert("Worker indisponível. Configuração salva localmente na versão: " + v);
   }
 }
 
 async function carregarConfiguracao(){
+  const secoesPadrao = [
+    "FRENTE SITE",
+    "PORTÃO DE ACESSO",
+    "MEDIDOR DE ENERGIA",
+    "BASE DE EQUIPAMENTOS",
+    "SITE FINALIZADO"
+  ];
+
+  // 1) carrega local primeiro
+  const local = loadLocalConfig(CONFIG_VERSION);
+  if(local && local.length){
+    secoes = local;
+    renderChecklist();
+  }
+
+  // fallback default local
+  if((!local || !local.length) && CONFIG_VERSION !== "default"){
+    const localDefault = loadLocalConfig("default");
+    if(localDefault && localDefault.length){
+      secoes = localDefault;
+      renderChecklist();
+    }
+  }
+
+  // 2) tenta worker
   try{
-    // tenta a versão pedida na URL
-    const r = await fetch(WORKER + `?getconfig=true&v=${encodeURIComponent(CONFIG_VERSION)}`);
+    const r = await fetch(WORKER + `?getconfig=true&v=${encodeURIComponent(CONFIG_VERSION)}`, {
+      cache: "no-store"
+    });
+
     if(r.ok){
       const data = await r.json();
       if(data && Array.isArray(data.secoes) && data.secoes.length){
         secoes = data.secoes;
+        saveLocalConfig(CONFIG_VERSION, secoes);
         renderChecklist();
         return;
       }
     }
 
-    // fallback para default se não existir
+    // fallback worker default
     if(CONFIG_VERSION !== "default"){
-      const r2 = await fetch(WORKER + `?getconfig=true&v=default`);
+      const r2 = await fetch(WORKER + `?getconfig=true&v=default`, { cache:"no-store" });
       if(r2.ok){
         const data2 = await r2.json();
         if(data2 && Array.isArray(data2.secoes) && data2.secoes.length){
           secoes = data2.secoes;
+          saveLocalConfig("default", secoes);
+          renderChecklist();
+          return;
         }
       }
     }
-  } catch(e){}
+  }catch{}
+
+  if(!Array.isArray(secoes) || !secoes.length){
+    secoes = secoesPadrao;
+  }
+
   renderChecklist();
 }
 
-// ================= DATA/HORA =================
+// ============================
+// DATA/HORA
+// ============================
 function getTimestampInfo(){
   const now = new Date();
   return {
@@ -227,7 +416,9 @@ function getTimestampInfo(){
   };
 }
 
-// ================= GEOLOCALIZAÇÃO =================
+// ============================
+// GEOLOCALIZAÇÃO
+// ============================
 function getGeolocation(){
   return new Promise((resolve)=>{
     if(!navigator.geolocation){
@@ -254,7 +445,9 @@ function getGeolocation(){
   });
 }
 
-// ================= AZIMUTE (BÚSSOLA) =================
+// ============================
+// AZIMUTE
+// ============================
 async function requestOrientationPermissionIfNeeded(){
   if (typeof DeviceOrientationEvent !== "undefined" &&
       typeof DeviceOrientationEvent.requestPermission === "function") {
@@ -283,9 +476,9 @@ function getAzimuthOnce(){
     const handler = (event)=>{
       let az = null;
       if (typeof event.webkitCompassHeading === "number") {
-        az = event.webkitCompassHeading; // iOS
+        az = event.webkitCompassHeading;
       } else if (typeof event.alpha === "number") {
-        az = event.alpha; // Android (aprox)
+        az = event.alpha;
       }
       window.removeEventListener("deviceorientation", handler, true);
 
@@ -305,7 +498,9 @@ function getAzimuthOnce(){
   });
 }
 
-// ================= ENDEREÇO (Reverse Geocoding) =================
+// ============================
+// ENDEREÇO
+// ============================
 async function reverseGeocode(lat, lon){
   try{
     const url =
@@ -333,7 +528,9 @@ async function reverseGeocode(lat, lon){
   }
 }
 
-// ================= HELPERS IMAGEM/TEXTO =================
+// ============================
+// HELPERS IMAGEM/TEXTO
+// ============================
 function loadImageFromFile(file){
   return new Promise((resolve, reject)=>{
     const img = new Image();
@@ -398,11 +595,11 @@ function ellipsizeToWidth(ctx, text, maxWidth){
   return t + "…";
 }
 
-// ================= CARIMBO PREMIUM (box pequeno no canto) =================
+// ============================
+// CARIMBO PREMIUM
+// ============================
 async function stampAndCompress(file, meta, maxWidth = 1800, quality = 0.88){
   const img = await loadImageFromFile(file);
-
-  // escala proporcional
   const scale = Math.min(1, maxWidth / img.width);
   const w = Math.round(img.width * scale);
   const h = Math.round(img.height * scale);
@@ -415,18 +612,14 @@ async function stampAndCompress(file, meta, maxWidth = 1800, quality = 0.88){
   ctx.drawImage(img, 0, 0, w, h);
 
   const base = Math.min(w, h);
-
-  // box premium
   const pad = Math.max(10, Math.round(base * 0.020));
   const margin = Math.max(12, Math.round(base * 0.025));
   const radius = Math.max(10, Math.round(base * 0.020));
   const maxBoxWidth = Math.min(Math.round(w * 0.78), Math.round(base * 1.55));
 
-  // fontes proporcionais
   const fSmall = Math.max(12, Math.round(base * 0.030));
   const fTiny  = Math.max(11, Math.round(base * 0.028));
 
-  // dados
   const tsLocal = meta?.capturedAt?.local || new Date().toLocaleString("pt-BR");
   const lat = meta?.geolocation?.available ? formatCoord(meta.geolocation.latitude) : "—";
   const lon = meta?.geolocation?.available ? formatCoord(meta.geolocation.longitude) : "—";
@@ -437,7 +630,6 @@ async function stampAndCompress(file, meta, maxWidth = 1800, quality = 0.88){
   const line1 = `Lat ${lat}   Lon ${lon}   (±${acc})`;
   const line2 = `Azimute ${az}   ${tsLocal}`;
 
-  // endereço 1–2 linhas
   ctx.font = `600 ${fTiny}px system-ui, -apple-system, Segoe UI, Roboto, Arial`;
   const addrMaxWidth = maxBoxWidth - (pad * 2);
   let addrLines = wrapTextLines(ctx, addrText, addrMaxWidth);
@@ -446,7 +638,6 @@ async function stampAndCompress(file, meta, maxWidth = 1800, quality = 0.88){
     addrLines[1] = ellipsizeToWidth(ctx, addrLines[1], addrMaxWidth);
   }
 
-  // mede box
   ctx.font = `800 ${fSmall}px system-ui, -apple-system, Segoe UI, Roboto, Arial`;
   const w1 = ctx.measureText(line1).width;
   const w2 = ctx.measureText(line2).width;
@@ -470,24 +661,19 @@ async function stampAndCompress(file, meta, maxWidth = 1800, quality = 0.88){
     pad * 1.2
   );
 
-  // posição: canto inferior esquerdo (premium)
-  // >>> Para canto inferior direito troque para: const x = w - margin - boxW;
   const x = margin;
   const y = h - margin - boxH;
 
-  // fundo translúcido + sombra suave
   ctx.save();
   ctx.shadowColor = "rgba(0,0,0,0.35)";
   ctx.shadowBlur = Math.max(8, Math.round(base * 0.02));
   ctx.shadowOffsetX = 0;
   ctx.shadowOffsetY = Math.max(2, Math.round(base * 0.006));
-
   ctx.fillStyle = "rgba(0,0,0,0.55)";
   roundRect(ctx, x, y, boxW, boxH, radius);
   ctx.fill();
   ctx.restore();
 
-  // texto branco limpo
   ctx.save();
   ctx.fillStyle = "#fff";
   ctx.textBaseline = "top";
@@ -513,7 +699,6 @@ async function stampAndCompress(file, meta, maxWidth = 1800, quality = 0.88){
 
   ctx.restore();
 
-  // exporta JPG
   return new Promise((resolve, reject)=>{
     canvas.toBlob((blob)=>{
       if(!blob) return reject(new Error("Falha ao gerar imagem carimbada"));
@@ -524,8 +709,24 @@ async function stampAndCompress(file, meta, maxWidth = 1800, quality = 0.88){
   });
 }
 
-// ================= UI / RENDER =================
+// ============================
+// UI / RENDER
+// ============================
+function ensureSecoes(){
+  if(!Array.isArray(secoes) || !secoes.length){
+    secoes = [
+      "FRENTE SITE",
+      "PORTÃO DE ACESSO",
+      "MEDIDOR DE ENERGIA",
+      "BASE DE EQUIPAMENTOS",
+      "SITE FINALIZADO"
+    ];
+  }
+}
+
 function renderChecklist(){
+  ensureSecoes();
+
   const container = document.getElementById("checklistContainer");
   if(!container) return;
   container.innerHTML = "";
@@ -575,7 +776,6 @@ function renderChecklist(){
       const files = Array.from(e.target.files).slice(0,10);
       if(!state[titulo]) state[titulo] = [];
 
-      // coleta geo + endereço + azimute (1x por seleção)
       const geo = await getGeolocation();
       let address = null;
       if(geo.available){
@@ -585,12 +785,18 @@ function renderChecklist(){
       const ts = getTimestampInfo();
 
       for(const file of files){
+        const itemId = crypto.randomUUID();
+
         const item = {
+          id: itemId,
           name: file.name,
           preview: URL.createObjectURL(file),
-          status: "fila",
-          progress: 0
+          status: navigator.onLine ? "fila" : "offline",
+          progress: 0,
+          siteId,
+          section: titulo
         };
+
         state[titulo].push(item);
         renderImages(s, titulo);
 
@@ -609,18 +815,20 @@ function renderChecklist(){
         const stamped = await stampAndCompress(file, meta, 1800, 0.88);
         meta.savedName = stamped.name;
 
-        uploadQueue.push({
+        const job = {
+          id: itemId,
+          createdAt: Date.now(),
           siteId,
           section: titulo,
           file: stamped,
-          meta,
-          itemRef: item,
-          secaoEl: s,
-          titulo
-        });
+          meta
+        };
+
+        await idbPut(job);
       }
 
       e.target.value = "";
+      await rebuildQueueFromDB();
       processQueue();
     };
 
@@ -633,6 +841,14 @@ function renderChecklist(){
     renderImages(s, titulo);
     container.appendChild(s);
   });
+}
+
+function findItemById(id){
+  for(const secao of Object.keys(state)){
+    const item = (state[secao] || []).find(x => x.id === id);
+    if(item) return item;
+  }
+  return null;
 }
 
 function renderImages(secaoEl, titulo){
@@ -656,9 +872,10 @@ function renderImages(secaoEl, titulo){
     img.style.cursor = "pointer";
     img.title = "Clique para remover";
 
-    img.onclick = ()=>{
+    img.onclick = async ()=>{
       if(confirm("Remover foto?")){
-        uploadQueue = uploadQueue.filter(j => j.itemRef !== it);
+        uploadQueue = uploadQueue.filter(j => j.id !== it.id);
+        await idbDelete(it.id);
         try{ URL.revokeObjectURL(it.preview); }catch{}
         items.splice(i,1);
         renderImages(secaoEl, titulo);
@@ -676,18 +893,24 @@ function renderImages(secaoEl, titulo){
     const bar = document.createElement("div");
     bar.style.height = "100%";
     bar.style.width = (it.progress||0) + "%";
-    bar.style.background = it.status === "erro" ? "#dc2626" : (it.status === "ok" ? "#16a34a" : "#2563eb");
+
+    if(it.status === "erro") bar.style.background = "#dc2626";
+    else if(it.status === "ok") bar.style.background = "#16a34a";
+    else if(it.status === "offline") bar.style.background = "#f59e0b";
+    else bar.style.background = "#2563eb";
+
     barWrap.appendChild(bar);
 
     const label = document.createElement("div");
     label.style.fontSize = "11px";
     label.style.color = "#374151";
     label.style.marginTop = "4px";
-    label.innerText =
-      it.status === "ok" ? "Enviado" :
-      it.status === "erro" ? "Erro" :
-      it.status === "enviando" ? `Enviando ${it.progress||0}%` :
-      "Na fila";
+
+    if(it.status === "ok") label.innerText = "Enviado";
+    else if(it.status === "erro") label.innerText = "Erro";
+    else if(it.status === "offline") label.innerText = "Aguardando internet";
+    else if(it.status === "enviando") label.innerText = `Enviando ${it.progress||0}%`;
+    else label.innerText = "Na fila";
 
     wrap.appendChild(img);
     wrap.appendChild(barWrap);
@@ -696,57 +919,114 @@ function renderImages(secaoEl, titulo){
     c.appendChild(wrap);
   });
 
-  const ct=document.createElement("div");
-  ct.className="contador";
-  ct.innerText=`Fotos: ${items.length}/10`;
+  const ct = document.createElement("div");
+  ct.className = "contador";
+  ct.innerText = `Fotos: ${items.length}/10`;
   c.appendChild(ct);
 }
 
-// ================= FILA + RETRY =================
+// ============================
+// FILA OFFLINE / ONLINE
+// ============================
+async function rebuildQueueFromDB(){
+  const all = await idbGetAll();
+  uploadQueue = all.sort((a,b)=>a.createdAt - b.createdAt);
+
+  for(const job of uploadQueue){
+    let item = findItemById(job.id);
+    if(!item){
+      if(!state[job.section]) state[job.section] = [];
+      item = {
+        id: job.id,
+        name: job.file?.name || "foto",
+        preview: URL.createObjectURL(job.file),
+        status: navigator.onLine ? "fila" : "offline",
+        progress: 0,
+        siteId: job.siteId,
+        section: job.section
+      };
+      state[job.section].push(item);
+    } else {
+      if(item.status !== "ok") item.status = navigator.onLine ? "fila" : "offline";
+    }
+  }
+
+  renderChecklist();
+}
+
 async function processQueue(){
   if(uploading) return;
+  if(!navigator.onLine){
+    Object.values(state).flat().forEach(it=>{
+      if(it.status !== "ok") it.status = "offline";
+    });
+    renderChecklist();
+    return;
+  }
+
   uploading = true;
 
-  while(uploadQueue.length){
-    const job = uploadQueue.shift();
-    const { siteId, section, file, meta, itemRef, secaoEl, titulo } = job;
+  while(uploadQueue.length && navigator.onLine){
+    const job = uploadQueue[0];
+    const itemRef = findItemById(job.id);
 
-    itemRef.status = "enviando";
-    itemRef.progress = 0;
-    renderImages(secaoEl, titulo);
+    if(itemRef){
+      itemRef.status = "enviando";
+      itemRef.progress = 0;
+      renderChecklist();
+    }
 
     let ok = false;
     let lastErr = null;
 
     for(let attempt=1; attempt<=MAX_RETRY; attempt++){
       try{
-        await uploadFileToWorker(siteId, section, file, meta, (p)=>{
-          itemRef.progress = p;
-          renderImages(secaoEl, titulo);
+        await uploadFileToWorker(job.siteId, job.section, job.file, job.meta, (p)=>{
+          const item = findItemById(job.id);
+          if(item){
+            item.progress = p;
+            item.status = "enviando";
+            renderChecklist();
+          }
         });
+
         ok = true;
         break;
       } catch(e){
         lastErr = e;
+        if(!navigator.onLine) break;
       }
     }
 
     if(ok){
-      itemRef.status = "ok";
-      itemRef.progress = 100;
-    } else {
-      itemRef.status = "erro";
-      itemRef.progress = 100;
+      const item = findItemById(job.id);
+      if(item){
+        item.status = "ok";
+        item.progress = 100;
+      }
+      await idbDelete(job.id);
+      uploadQueue.shift();
+    }else{
+      const item = findItemById(job.id);
+      if(item){
+        item.status = navigator.onLine ? "erro" : "offline";
+      }
+      if(!navigator.onLine) break;
+
+      // se falhou online, pula pro próximo ciclo futuro
       console.error("Falha upload:", lastErr);
+      break;
     }
 
-    renderImages(secaoEl, titulo);
+    renderChecklist();
   }
 
   uploading = false;
 }
 
-// ================= BOTÃO ENVIAR =================
+// ============================
+// BOTÃO ENVIAR
+// ============================
 async function enviarRelatorio(){
   const siteId = document.getElementById("siteId")?.value.trim();
   if(!siteId){
@@ -756,12 +1036,39 @@ async function enviarRelatorio(){
 
   const pendentes = Object.values(state).flat().some(it => it.status !== "ok");
   if(pendentes){
-    alert("Ainda existem fotos enviando ou com erro. Aguarde concluir ou remova/reenvie.");
+    if(!navigator.onLine){
+      alert("Você está offline. As fotos serão enviadas automaticamente quando a internet voltar.");
+      return;
+    }
+    alert("Ainda existem fotos enviando ou com erro. Aguarde concluir.");
     return;
   }
 
   alert("Tudo enviado! Você pode encerrar.");
 }
 
-// ================= INIT =================
-carregarConfiguracao();
+// ============================
+// EVENTOS DE REDE
+// ============================
+window.addEventListener("online", async ()=>{
+  console.log("Internet voltou. Sincronizando uploads...");
+  await rebuildQueueFromDB();
+  processQueue();
+});
+
+window.addEventListener("offline", ()=>{
+  console.log("Modo offline ativado.");
+  Object.values(state).flat().forEach(it=>{
+    if(it.status !== "ok") it.status = "offline";
+  });
+  renderChecklist();
+});
+
+// ============================
+// INIT
+// ============================
+(async function init(){
+  await carregarConfiguracao();
+  await rebuildQueueFromDB();
+  if(navigator.onLine) processQueue();
+})();
