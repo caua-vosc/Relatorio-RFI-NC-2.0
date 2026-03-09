@@ -3,6 +3,12 @@ const WORKER = "https://rfi-20.caua-viniciusosc12.workers.dev/";
 let adminMode = false;
 const ADMIN_PASSWORD = "Nova@123";
 
+// ========= VERSÕES POR LINK =========
+// Usa ?v=nome-da-versao (default se não vier)
+const urlParams = new URLSearchParams(location.search);
+let CONFIG_VERSION = (urlParams.get("v") || "default").trim();
+if(!CONFIG_VERSION) CONFIG_VERSION = "default";
+
 let secoes = [
   "FRENTE SITE",
   "PORTÃO DE ACESSO",
@@ -28,13 +34,13 @@ function toggleAdmin(){
     adminMode = true;
     const btn = document.getElementById("btnNovaSecao");
     if(btn) btn.style.display="inline-block";
-    criarBotaoSalvarConfig();
+    criarBarraVersoesAdmin();
     alert("Modo administrador ativado");
   } else {
     adminMode = false;
     const btn = document.getElementById("btnNovaSecao");
     if(btn) btn.style.display="none";
-    removerBotaoSalvarConfig();
+    removerBarraVersoesAdmin();
     alert("Modo administrador desativado");
   }
   renderChecklist();
@@ -58,31 +64,127 @@ function excluirSecao(idx){
   }
 }
 
-function criarBotaoSalvarConfig(){
-  if(document.getElementById("btnSalvarConfig")) return;
-  const btn = document.createElement("button");
-  btn.id = "btnSalvarConfig";
-  btn.innerText = "Salvar Configuração";
-  btn.style.marginTop = "10px";
-  btn.onclick = salvarConfiguracao;
-  document.body.appendChild(btn);
+// ================= UI ADMIN: VERSÕES =================
+function gerarLink(version){
+  const v = (version || "default").trim() || "default";
+  const base = location.origin + location.pathname;
+  return `${base}?v=${encodeURIComponent(v)}`;
 }
 
-function removerBotaoSalvarConfig(){
-  const btn = document.getElementById("btnSalvarConfig");
-  if(btn) btn.remove();
+function criarBarraVersoesAdmin(){
+  if(document.getElementById("adminVersionBar")) return;
+
+  const wrap = document.createElement("div");
+  wrap.id = "adminVersionBar";
+  wrap.style.marginTop = "10px";
+  wrap.style.padding = "10px";
+  wrap.style.border = "1px solid #e5e7eb";
+  wrap.style.borderRadius = "12px";
+  wrap.style.background = "#fafafa";
+
+  const title = document.createElement("div");
+  title.style.fontWeight = "700";
+  title.style.marginBottom = "6px";
+  title.innerText = "Versões de Seções";
+  wrap.appendChild(title);
+
+  const info = document.createElement("div");
+  info.id = "adminVersionInfo";
+  info.style.fontSize = "12px";
+  info.style.color = "#4b5563";
+  info.style.marginBottom = "10px";
+  info.innerHTML = `Versão atual: <b>${CONFIG_VERSION}</b>`;
+  wrap.appendChild(info);
+
+  const row = document.createElement("div");
+  row.style.display = "flex";
+  row.style.flexWrap = "wrap";
+  row.style.gap = "8px";
+
+  const btnSave = document.createElement("button");
+  btnSave.innerText = "Salvar nesta versão";
+  btnSave.onclick = ()=> salvarConfiguracao(CONFIG_VERSION);
+  row.appendChild(btnSave);
+
+  const btnSaveAs = document.createElement("button");
+  btnSaveAs.innerText = "Salvar como NOVA versão";
+  btnSaveAs.onclick = async ()=>{
+    const nome = prompt("Nome da nova versão (ex: skid-01, cliente-x):");
+    if(!nome) return;
+    const v = nome.trim();
+    if(!v) return;
+
+    await salvarConfiguracao(v);
+
+    const link = gerarLink(v);
+    try{
+      await navigator.clipboard.writeText(link);
+      alert("Nova versão salva e link copiado:\n\n" + link);
+    }catch{
+      alert("Nova versão salva. Link:\n\n" + link);
+    }
+  };
+  row.appendChild(btnSaveAs);
+
+  const btnLink = document.createElement("button");
+  btnLink.innerText = "Gerar link desta versão";
+  btnLink.onclick = async ()=>{
+    const link = gerarLink(CONFIG_VERSION);
+    try{
+      await navigator.clipboard.writeText(link);
+      alert("Link copiado:\n\n" + link);
+    }catch{
+      alert("Link:\n\n" + link);
+    }
+  };
+  row.appendChild(btnLink);
+
+  const btnOpen = document.createElement("button");
+  btnOpen.innerText = "Abrir outra versão…";
+  btnOpen.onclick = ()=>{
+    const v = prompt("Digite o nome da versão para abrir:");
+    if(!v) return;
+    location.href = gerarLink(v.trim());
+  };
+  row.appendChild(btnOpen);
+
+  wrap.appendChild(row);
+
+  // insere antes do checklist
+  const checklist = document.getElementById("checklistContainer");
+  if(checklist){
+    document.body.insertBefore(wrap, checklist);
+  } else {
+    document.body.appendChild(wrap);
+  }
 }
 
-// ================= CONFIG REMOTA =================
-async function salvarConfiguracao(){
+function atualizarBarraVersoesAdmin(){
+  const info = document.getElementById("adminVersionInfo");
+  if(info) info.innerHTML = `Versão atual: <b>${CONFIG_VERSION}</b>`;
+}
+
+function removerBarraVersoesAdmin(){
+  const el = document.getElementById("adminVersionBar");
+  if(el) el.remove();
+}
+
+// ================= CONFIG REMOTA (POR VERSÃO) =================
+async function salvarConfiguracao(version = CONFIG_VERSION){
   try{
-    const r = await fetch(WORKER + "?config=true", {
+    const v = (version || "default").trim() || "default";
+
+    const r = await fetch(WORKER + `?config=true&v=${encodeURIComponent(v)}`, {
       method:"POST",
       headers: {"Content-Type":"application/json"},
       body: JSON.stringify({ secoes })
     });
+
     if(!r.ok) throw new Error(await r.text());
-    alert("Configuração salva!");
+
+    CONFIG_VERSION = v;
+    atualizarBarraVersoesAdmin();
+    alert("Configuração salva na versão: " + v);
   } catch(e){
     alert("Erro ao salvar configuração: " + e.message);
   }
@@ -90,11 +192,25 @@ async function salvarConfiguracao(){
 
 async function carregarConfiguracao(){
   try{
-    const r = await fetch(WORKER + "?getconfig=true");
+    // tenta a versão pedida na URL
+    const r = await fetch(WORKER + `?getconfig=true&v=${encodeURIComponent(CONFIG_VERSION)}`);
     if(r.ok){
       const data = await r.json();
       if(data && Array.isArray(data.secoes) && data.secoes.length){
         secoes = data.secoes;
+        renderChecklist();
+        return;
+      }
+    }
+
+    // fallback para default se não existir
+    if(CONFIG_VERSION !== "default"){
+      const r2 = await fetch(WORKER + `?getconfig=true&v=default`);
+      if(r2.ok){
+        const data2 = await r2.json();
+        if(data2 && Array.isArray(data2.secoes) && data2.secoes.length){
+          secoes = data2.secoes;
+        }
       }
     }
   } catch(e){}
@@ -348,9 +464,14 @@ async function stampAndCompress(file, meta, maxWidth = 1800, quality = 0.88){
   const lh2 = Math.round(fSmall * 1.18);
   const lhA = Math.round(fTiny  * 1.20);
 
-  const boxH = Math.ceil((lh1 + lh2) + (addrLines.length ? (addrLines.length * lhA + Math.round(base*0.008)) : 0) + pad * 1.2);
+  const boxH = Math.ceil(
+    (lh1 + lh2) +
+    (addrLines.length ? (addrLines.length * lhA + Math.round(base*0.008)) : 0) +
+    pad * 1.2
+  );
 
   // posição: canto inferior esquerdo (premium)
+  // >>> Para canto inferior direito troque para: const x = w - margin - boxW;
   const x = margin;
   const y = h - margin - boxH;
 
@@ -481,7 +602,8 @@ function renderChecklist(){
           geolocation: geo,
           azimuth: az,
           address: address,
-          userAgent: navigator.userAgent
+          userAgent: navigator.userAgent,
+          configVersion: CONFIG_VERSION
         };
 
         const stamped = await stampAndCompress(file, meta, 1800, 0.88);
