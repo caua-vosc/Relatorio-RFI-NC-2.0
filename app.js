@@ -758,115 +758,184 @@ function renderChecklist(){
       secoes[idx]=novo.toUpperCase();
       renderChecklist();
     };
-    s.appendChild(t);
+  
+    async function abrirCameraForcada() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: { ideal: "environment" }
+      },
+      audio: false
+    });
+    return stream;
+  } catch (e) {
+    console.warn("Erro ao abrir câmera:", e);
+    return null;
+  }
+}
 
-/* ===== CAMERA + GALERIA (FINAL OTIMIZADO) ===== */
+/* ===== UX COMPLETO (CÂMERA + GALERIA + SISTEMA) ===== */
 
 const actions = document.createElement("div");
-const btnEscolher = document.createElement("button");
-btnEscolher.innerText = "📷 Enviar Foto";
+actions.style.display = "flex";
+actions.style.gap = "10px";
+actions.style.marginBottom = "10px";
 
-/* input escondido (galeria) */
-const inputGaleria = document.createElement("input");
-inputGaleria.type = "file";
-inputGaleria.accept = "image/*";
-inputGaleria.multiple = true;
-inputGaleria.style.display = "none";
+/* BOTÃO PRINCIPAL (ESCOLHA INTELIGENTE) */
+const btnMain = document.createElement("button");
+btnMain.innerText = "📷 Adicionar Foto";
 
-/* CLICK PRINCIPAL */
-btnEscolher.onclick = async () => {
+/* INPUT UNIVERSAL (camera + galeria do sistema) */
+const inputFile = document.createElement("input");
+inputFile.type = "file";
+inputFile.accept = "image/*";
+inputFile.style.display = "none";
 
+/* BOTÃO CÂMERA REAL */
+const btnCamera = document.createElement("button");
+btnCamera.innerText = "📸 Tirar Foto";
+
+/* BOTÃO GALERIA */
+const btnGaleria = document.createElement("button");
+btnGaleria.innerText = "🖼️ Galeria";
+
+/* ========= FUNÇÃO ÚNICA DE PROCESSAMENTO ========= */
+async function processarImagem(file, titulo, s){
   const siteId = document.getElementById("siteId")?.value.trim();
   if(!siteId){
     alert("Informe o ID do site");
     return;
   }
 
-  // 🔥 MENU SIMPLES
-  const usarCamera = confirm("OK = Tirar Foto\nCancelar = Escolher da Galeria");
-
-  // =========================
-  // 📷 CÂMERA
-  // =========================
-  if (usarCamera) {
-
-    let stream = null;
-
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: "environment" } },
-        audio: false
-      });
-    } catch (e) {
-      alert("Não foi possível abrir a câmera");
-      return;
-    }
-
-    const video = document.createElement("video");
-    video.style.position = "fixed";
-    video.style.top = "0";
-    video.style.left = "0";
-    video.style.width = "100%";
-    video.style.height = "100%";
-    video.style.zIndex = "9999";
-    video.style.background = "#000";
-    video.autoplay = true;
-    video.playsInline = true;
-    video.srcObject = stream;
-
-    document.body.appendChild(video);
-
-    const btnCapture = document.createElement("button");
-    btnCapture.innerText = "📸 Capturar";
-    btnCapture.style.position = "fixed";
-    btnCapture.style.bottom = "20px";
-    btnCapture.style.left = "50%";
-    btnCapture.style.transform = "translateX(-50%)";
-    btnCapture.style.zIndex = "10000";
-
-    document.body.appendChild(btnCapture);
-
-    btnCapture.onclick = async () => {
-
-      const canvas = document.createElement("canvas");
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-
-      const ctx = canvas.getContext("2d");
-      ctx.drawImage(video, 0, 0);
-
-      stream.getTracks().forEach(t => t.stop());
-      video.remove();
-      btnCapture.remove();
-
-      canvas.toBlob(async (blob) => {
-        const file = new File([blob], "camera.jpg", { type: "image/jpeg" });
-        await processarImagem(file, titulo, s);
-      }, "image/jpeg", 0.9);
-    };
-
+  if(!state[titulo]) state[titulo] = [];
+  if(state[titulo].length >= 10){
+    alert("Limite de 10 fotos atingido");
+    return;
   }
 
-  // =========================
-  // 🖼️ GALERIA
-  // =========================
-  else {
-    inputGaleria.value = "";
-    inputGaleria.click();
-  }
+  const geo = await getGeolocation();
+  const address = geo.available ? await reverseGeocode(geo.latitude, geo.longitude) : null;
+  const az = await getAzimuthOnce();
+  const ts = getTimestampInfo();
+
+  const itemId = crypto.randomUUID();
+
+  const item = {
+    id: itemId,
+    name: file.name,
+    preview: URL.createObjectURL(file),
+    status: navigator.onLine ? "fila" : "offline",
+    progress: 0,
+    siteId,
+    section: titulo
+  };
+
+  state[titulo].push(item);
+  renderImages(s, titulo);
+
+  const meta = {
+    siteId,
+    section: titulo,
+    originalName: file.name,
+    capturedAt: ts,
+    geolocation: geo,
+    azimuth: az,
+    address,
+    userAgent: navigator.userAgent,
+    configVersion: CONFIG_VERSION
+  };
+
+  const stamped = await stampAndCompress(file, meta);
+  meta.savedName = stamped.name;
+
+  await idbPut({
+    id: itemId,
+    createdAt: Date.now(),
+    siteId,
+    section: titulo,
+    file: stamped,
+    meta
+  });
+
+  await rebuildQueueFromDB();
+  processQueue();
+}
+
+/* ========= AÇÕES ========= */
+
+// SISTEMA (mostra camera + galeria do celular)
+btnMain.onclick = () => {
+  inputFile.value = "";
+  inputFile.click();
 };
 
-/* GALERIA */
-inputGaleria.onchange = async (e)=>{
-  const files = Array.from(e.target.files);
-  for(const file of files){
-    await processarImagem(file, titulo, s);
-  }
+inputFile.onchange = (e)=>{
+  const file = e.target.files[0];
+  if(file) processarImagem(file, titulo, s);
 };
 
-/* ADICIONA NA UI */
-actions.appendChild(btnEscolher);
-actions.appendChild(inputGaleria);
+// CÂMERA REAL
+btnCamera.onclick = async () => {
+  const stream = await abrirCameraForcada();
+
+  if (!stream) {
+    alert("Não foi possível abrir a câmera");
+    return;
+  }
+
+  const video = document.createElement("video");
+  video.style.position = "fixed";
+  video.style.top = "0";
+  video.style.left = "0";
+  video.style.width = "100%";
+  video.style.height = "100%";
+  video.style.background = "#000";
+  video.style.zIndex = "9999";
+  video.autoplay = true;
+  video.srcObject = stream;
+
+  document.body.appendChild(video);
+
+  const btnCapture = document.createElement("button");
+  btnCapture.innerText = "📸 Capturar";
+  btnCapture.style.position = "fixed";
+  btnCapture.style.bottom = "20px";
+  btnCapture.style.left = "50%";
+  btnCapture.style.transform = "translateX(-50%)";
+  btnCapture.style.zIndex = "10000";
+
+  document.body.appendChild(btnCapture);
+
+  btnCapture.onclick = () => {
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(video, 0, 0);
+
+    stream.getTracks().forEach(t => t.stop());
+    video.remove();
+    btnCapture.remove();
+
+    canvas.toBlob((blob)=>{
+      const file = new File([blob], "camera.jpg", { type: "image/jpeg" });
+      processarImagem(file, titulo, s);
+    }, "image/jpeg", 0.9);
+  };
+};
+
+// GALERIA DIRETA
+btnGaleria.onclick = () => {
+  inputFile.value = "";
+  inputFile.click();
+};
+
+/* APPEND */
+actions.appendChild(btnMain);
+actions.appendChild(btnCamera);
+actions.appendChild(btnGaleria);
+actions.appendChild(inputFile);
 
 s.appendChild(actions);
     const imgs = document.createElement("div");
