@@ -768,19 +768,11 @@ actions.style.gap = "10px";
 actions.style.marginBottom = "10px";
 
 /* =========================
-   📷 BOTÃO CÂMERA (FORÇADO)
+   📷 BOTÃO CÂMERA REAL
 ========================= */
 const btnCamera = document.createElement("button");
 btnCamera.innerText = "📷 Tirar Foto";
 
-/* fallback */
-const inputCamera = document.createElement("input");
-inputCamera.type = "file";
-inputCamera.accept = "image/*";
-inputCamera.setAttribute("capture", "environment");
-inputCamera.style.display = "none";
-
-/* 🔥 CLICK */
 btnCamera.onclick = async () => {
 
   const siteId = document.getElementById("siteId")?.value.trim();
@@ -789,191 +781,67 @@ btnCamera.onclick = async () => {
     return;
   }
 
-  // 1️⃣ tenta câmera REAL
-  const stream = await abrirCameraForcada();
+  let stream = null;
 
-  if (stream) {
-    // cria video temporário
-    const video = document.createElement("video");
-    video.style.position = "fixed";
-    video.style.top = "0";
-    video.style.left = "0";
-    video.style.width = "100%";
-    video.style.height = "100%";
-    video.style.zIndex = "9999";
-    video.style.background = "#000";
-    video.autoplay = true;
-    video.srcObject = stream;
-
-    document.body.appendChild(video);
-
-    // botão capturar
-    const btnCapture = document.createElement("button");
-    btnCapture.innerText = "📸 Capturar";
-    btnCapture.style.position = "fixed";
-    btnCapture.style.bottom = "20px";
-    btnCapture.style.left = "50%";
-    btnCapture.style.transform = "translateX(-50%)";
-    btnCapture.style.zIndex = "10000";
-
-    document.body.appendChild(btnCapture);
-
-    btnCapture.onclick = async () => {
-      const canvas = document.createElement("canvas");
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-
-      const ctx = canvas.getContext("2d");
-      ctx.drawImage(video, 0, 0);
-
-      // parar câmera
-      stream.getTracks().forEach(t => t.stop());
-      video.remove();
-      btnCapture.remove();
-
-      canvas.toBlob(async (blob) => {
-        const file = new File([blob], "camera.jpg", { type: "image/jpeg" });
-
-        await processarImagem(file, titulo, s);
-
-      }, "image/jpeg", 0.9);
-    };
-
-  } else {
-    // 2️⃣ fallback input
-    inputCamera.value = "";
-    inputCamera.click();
-  }
-};
-};
-
-inputCamera.onchange = async (e)=>{
-  const file = e.target.files[0];
-  if(file){
-    await processarImagem(file, titulo, s);
-  }
-};
-
-  const file = e.target.files[0];
-  if(!file) return;
-
-  if(!state[titulo]) state[titulo] = [];
-  if(state[titulo].length >= 10){
-    alert("Limite de 10 fotos atingido");
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: "environment" } },
+      audio: false
+    });
+  } catch (e) {
+    alert("Não foi possível abrir a câmera");
     return;
   }
 
-  async function processarImagem(file, titulo, secaoEl){
-  const siteId = document.getElementById("siteId")?.value.trim();
+  const video = document.createElement("video");
+  video.style.position = "fixed";
+  video.style.top = "0";
+  video.style.left = "0";
+  video.style.width = "100%";
+  video.style.height = "100%";
+  video.style.zIndex = "9999";
+  video.style.background = "#000";
+  video.autoplay = true;
+  video.playsInline = true;
+  video.srcObject = stream;
 
-  if(!state[titulo]) state[titulo] = [];
-  if(state[titulo].length >= 10){
-    alert("Limite de 10 fotos atingido");
-    return;
-  }
+  document.body.appendChild(video);
 
-  const geo = await getGeolocation();
-  const address = geo.available ? await reverseGeocode(geo.latitude, geo.longitude) : null;
-  const az = await getAzimuthOnce();
-  const ts = getTimestampInfo();
+  const btnCapture = document.createElement("button");
+  btnCapture.innerText = "📸 Capturar";
+  btnCapture.style.position = "fixed";
+  btnCapture.style.bottom = "20px";
+  btnCapture.style.left = "50%";
+  btnCapture.style.transform = "translateX(-50%)";
+  btnCapture.style.zIndex = "10000";
 
-  const itemId = crypto.randomUUID();
+  document.body.appendChild(btnCapture);
 
-  const item = {
-    id: itemId,
-    name: file.name,
-    preview: URL.createObjectURL(file),
-    status: navigator.onLine ? "fila" : "offline",
-    progress: 0,
-    siteId,
-    section: titulo
+  btnCapture.onclick = async () => {
+
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(video, 0, 0);
+
+    stream.getTracks().forEach(t => t.stop());
+    video.remove();
+    btnCapture.remove();
+
+    canvas.toBlob(async (blob) => {
+      const file = new File([blob], "camera.jpg", { type: "image/jpeg" });
+      await processarImagem(file, titulo, s);
+    }, "image/jpeg", 0.9);
   };
-
-  state[titulo].push(item);
-  renderImages(secaoEl, titulo);
-
-  const meta = {
-    siteId,
-    section: titulo,
-    originalName: file.name,
-    capturedAt: ts,
-    geolocation: geo,
-    azimuth: az,
-    address,
-    userAgent: navigator.userAgent,
-    configVersion: CONFIG_VERSION
-  };
-
-  const stamped = await stampAndCompress(file, meta);
-  meta.savedName = stamped.name;
-
-  await idbPut({
-    id: itemId,
-    createdAt: Date.now(),
-    siteId,
-    section: titulo,
-    file: stamped,
-    meta
-  });
-
-  await rebuildQueueFromDB();
-  processQueue();
-}
-
-  // CAPTURA META UMA VEZ
-  const geo = await getGeolocation();
-  const address = geo.available ? await reverseGeocode(geo.latitude, geo.longitude) : null;
-  const az = await getAzimuthOnce();
-  const ts = getTimestampInfo();
-
-  const itemId = crypto.randomUUID();
-
-  const item = {
-    id: itemId,
-    name: file.name,
-    preview: URL.createObjectURL(file),
-    status: navigator.onLine ? "fila" : "offline",
-    progress: 0,
-    siteId,
-    section: titulo
-  };
-
-  state[titulo].push(item);
-  renderImages(s, titulo);
-
-  const meta = {
-    siteId,
-    section: titulo,
-    originalName: file.name,
-    capturedAt: ts,
-    geolocation: geo,
-    azimuth: az,
-    address,
-    userAgent: navigator.userAgent,
-    configVersion: CONFIG_VERSION
-  };
-
-  const stamped = await stampAndCompress(file, meta);
-  meta.savedName = stamped.name;
-
-  await idbPut({
-    id: itemId,
-    createdAt: Date.now(),
-    siteId,
-    section: titulo,
-    file: stamped,
-    meta
-  });
-
-  await rebuildQueueFromDB();
-  processQueue();
 };
 
 /* =========================
-   🖼️ BOTÃO GALERIA
+   🖼️ GALERIA
 ========================= */
 const btnGaleria = document.createElement("button");
-btnGaleria.innerText = "🖼️ Escolher da Galeria";
+btnGaleria.innerText = "🖼️ Galeria";
 
 const inputGaleria = document.createElement("input");
 inputGaleria.type = "file";
@@ -987,73 +855,15 @@ btnGaleria.onclick = () => {
 };
 
 inputGaleria.onchange = async (e)=>{
-  const siteId = document.getElementById("siteId")?.value.trim();
-  if(!siteId){
-    alert("Informe o ID do site");
-    return;
-  }
-
   const files = Array.from(e.target.files);
-
-  if(!state[titulo]) state[titulo] = [];
-  const restante = 10 - state[titulo].length;
-
-  // 🔥 CAPTURA META UMA VEZ (PERFORMANCE)
-  const geo = await getGeolocation();
-  const address = geo.available ? await reverseGeocode(geo.latitude, geo.longitude) : null;
-  const az = await getAzimuthOnce();
-  const ts = getTimestampInfo();
-
-  for(const file of files.slice(0, restante)){
-
-    const itemId = crypto.randomUUID();
-
-    const item = {
-      id: itemId,
-      name: file.name,
-      preview: URL.createObjectURL(file),
-      status: navigator.onLine ? "fila" : "offline",
-      progress: 0,
-      siteId,
-      section: titulo
-    };
-
-    state[titulo].push(item);
-    renderImages(s, titulo);
-
-    const meta = {
-      siteId,
-      section: titulo,
-      originalName: file.name,
-      capturedAt: ts,
-      geolocation: geo,
-      azimuth: az,
-      address,
-      userAgent: navigator.userAgent,
-      configVersion: CONFIG_VERSION
-    };
-
-    const stamped = await stampAndCompress(file, meta);
-    meta.savedName = stamped.name;
-
-    await idbPut({
-      id: itemId,
-      createdAt: Date.now(),
-      siteId,
-      section: titulo,
-      file: stamped,
-      meta
-    });
+  for(const file of files){
+    await processarImagem(file, titulo, s);
   }
-
-  await rebuildQueueFromDB();
-  processQueue();
 };
 
 /* APPEND */
 actions.appendChild(btnCamera);
 actions.appendChild(btnGaleria);
-actions.appendChild(inputCamera);
 actions.appendChild(inputGaleria);
 
 s.appendChild(actions);
