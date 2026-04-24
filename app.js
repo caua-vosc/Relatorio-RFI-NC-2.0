@@ -760,80 +760,135 @@ function renderChecklist(){
     };
     s.appendChild(t);
 
-    const f = document.createElement("input");
-    f.type="file";
-    f.accept="image/*";
-    f.multiple=true;
+   /* ===== CAMERA + GALERIA ===== */
 
-    f.onchange = async (e)=>{
-      const siteId = document.getElementById("siteId")?.value.trim();
-      if(!siteId){
-        alert("Informe o ID do site antes de adicionar fotos.");
-        e.target.value = "";
-        return;
-      }
+const actions = document.createElement("div");
+actions.style.display = "flex";
+actions.style.gap = "10px";
+actions.style.marginBottom = "10px";
 
-      const files = Array.from(e.target.files).slice(0,10);
-      if(!state[titulo]) state[titulo] = [];
+/* CAMERA */
+const btnCamera = document.createElement("button");
+btnCamera.innerText = "📷 Câmera";
 
-      const geo = await getGeolocation();
-      let address = null;
-      if(geo.available){
-        address = await reverseGeocode(geo.latitude, geo.longitude);
-      }
-      const az = await getAzimuthOnce();
-      const ts = getTimestampInfo();
+const inputCamera = document.createElement("input");
+inputCamera.type = "file";
+inputCamera.accept = "image/*";
+inputCamera.capture = "environment";
+inputCamera.style.display = "none";
 
-      for(const file of files){
-        const itemId = crypto.randomUUID();
+btnCamera.onclick = () => inputCamera.click();
 
-        const item = {
-          id: itemId,
-          name: file.name,
-          preview: URL.createObjectURL(file),
-          status: navigator.onLine ? "fila" : "offline",
-          progress: 0,
-          siteId,
-          section: titulo
-        };
+inputCamera.onchange = async (e)=>{
+  const siteId = document.getElementById("siteId")?.value.trim();
+  if(!siteId){
+    alert("Informe o ID do site");
+    return;
+  }
 
-        state[titulo].push(item);
-        renderImages(s, titulo);
+  const file = e.target.files[0];
+  if(!file) return;
 
-        const meta = {
-          siteId,
-          section: titulo,
-          originalName: file.name,
-          capturedAt: ts,
-          geolocation: geo,
-          azimuth: az,
-          address: address,
-          userAgent: navigator.userAgent,
-          configVersion: CONFIG_VERSION
-        };
+  if(!state[titulo]) state[titulo] = [];
+  if(state[titulo].length >= 10){
+    alert("Limite de 10 fotos atingido");
+    return;
+  }
 
-        const stamped = await stampAndCompress(file, meta, 1800, 0.88);
-        meta.savedName = stamped.name;
+  const geo = await getGeolocation();
+  const address = geo.available ? await reverseGeocode(geo.latitude, geo.longitude) : null;
+  const az = await getAzimuthOnce();
+  const ts = getTimestampInfo();
 
-        const job = {
-          id: itemId,
-          createdAt: Date.now(),
-          siteId,
-          section: titulo,
-          file: stamped,
-          meta
-        };
+  const itemId = crypto.randomUUID();
 
-        await idbPut(job);
-      }
+  const item = {
+    id: itemId,
+    name: file.name,
+    preview: URL.createObjectURL(file),
+    status: navigator.onLine ? "fila" : "offline",
+    progress: 0,
+    siteId,
+    section: titulo
+  };
 
-      e.target.value = "";
-      await rebuildQueueFromDB();
-      processQueue();
+  state[titulo].push(item);
+  renderImages(s, titulo);
+
+  const meta = { siteId, section: titulo, originalName: file.name, capturedAt: ts, geolocation: geo, azimuth: az, address, userAgent: navigator.userAgent, configVersion: CONFIG_VERSION };
+
+  const stamped = await stampAndCompress(file, meta);
+  meta.savedName = stamped.name;
+
+  await idbPut({ id: itemId, createdAt: Date.now(), siteId, section: titulo, file: stamped, meta });
+
+  await rebuildQueueFromDB();
+  processQueue();
+};
+
+/* GALERIA */
+const btnGaleria = document.createElement("button");
+btnGaleria.innerText = "🖼️ Galeria";
+
+const inputGaleria = document.createElement("input");
+inputGaleria.type = "file";
+inputGaleria.accept = "image/*";
+inputGaleria.multiple = true;
+inputGaleria.style.display = "none";
+
+btnGaleria.onclick = () => inputGaleria.click();
+
+inputGaleria.onchange = async (e)=>{
+  const siteId = document.getElementById("siteId")?.value.trim();
+  if(!siteId){
+    alert("Informe o ID do site");
+    return;
+  }
+
+  const files = Array.from(e.target.files);
+
+  if(!state[titulo]) state[titulo] = [];
+  const restante = 10 - state[titulo].length;
+
+  for(const file of files.slice(0, restante)){
+    const geo = await getGeolocation();
+    const address = geo.available ? await reverseGeocode(geo.latitude, geo.longitude) : null;
+    const az = await getAzimuthOnce();
+    const ts = getTimestampInfo();
+
+    const itemId = crypto.randomUUID();
+
+    const item = {
+      id: itemId,
+      name: file.name,
+      preview: URL.createObjectURL(file),
+      status: navigator.onLine ? "fila" : "offline",
+      progress: 0,
+      siteId,
+      section: titulo
     };
 
-    s.appendChild(f);
+    state[titulo].push(item);
+    renderImages(s, titulo);
 
+    const meta = { siteId, section: titulo, originalName: file.name, capturedAt: ts, geolocation: geo, azimuth: az, address, userAgent: navigator.userAgent, configVersion: CONFIG_VERSION };
+
+    const stamped = await stampAndCompress(file, meta);
+    meta.savedName = stamped.name;
+
+    await idbPut({ id: itemId, createdAt: Date.now(), siteId, section: titulo, file: stamped, meta });
+  }
+
+  await rebuildQueueFromDB();
+  processQueue();
+};
+
+actions.appendChild(btnCamera);
+actions.appendChild(btnGaleria);
+actions.appendChild(inputCamera);
+actions.appendChild(inputGaleria);
+
+s.appendChild(actions);
     const imgs = document.createElement("div");
     imgs.className = "img-container";
     s.appendChild(imgs);
@@ -951,7 +1006,13 @@ async function rebuildQueueFromDB(){
     }
   }
 
-  renderChecklist();
+  Object.keys(state).forEach(secao=>{
+  if(!secoes.includes(secao)){
+    secoes.push(secao);
+  }
+});
+
+renderChecklist();
 }
 
 async function processQueue(){
