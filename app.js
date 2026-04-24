@@ -758,8 +758,16 @@ function renderChecklist(){
       secoes[idx]=novo.toUpperCase();
       renderChecklist();
     };
+
+    s.appendChild(t);
   
     async function abrirCameraForcada() {
+  // 🔒 precisa HTTPS
+  if (location.protocol !== "https:" && location.hostname !== "localhost") {
+    alert("A câmera só funciona em HTTPS");
+    return null;
+  }
+
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
       video: {
@@ -767,9 +775,11 @@ function renderChecklist(){
       },
       audio: false
     });
+
     return stream;
-  } catch (e) {
-    console.warn("Erro ao abrir câmera:", e);
+
+  } catch (err) {
+    console.warn("getUserMedia falhou:", err);
     return null;
   }
 }
@@ -938,9 +948,29 @@ actions.appendChild(btnGaleria);
 actions.appendChild(inputFile);
 
 s.appendChild(actions);
-    const imgs = document.createElement("div");
-    imgs.className = "img-container";
-    s.appendChild(imgs);
+   // ===== TÍTULO =====
+const t = document.createElement("input");
+t.className = "edit-title";
+t.value = titulo;
+t.disabled = !adminMode;
+t.onchange = e => {
+  const novo = (e.target.value || "").trim();
+  if (!novo) {
+    e.target.value = titulo;
+    return;
+  }
+  secoes[idx] = novo.toUpperCase();
+  renderChecklist();
+};
+
+// ===== CONTAINER DE IMAGENS =====
+const imgs = document.createElement("div");
+imgs.className = "img-container";
+
+// ===== APPEND NA ORDEM CORRETA =====
+s.appendChild(t);        // 🔥 TÍTULO PRIMEIRO
+s.appendChild(actions);  // 🔥 BOTÕES
+s.appendChild(imgs);     // 🔥 IMAGENS
 
     renderImages(s, titulo);
     container.appendChild(s);
@@ -1061,28 +1091,7 @@ async function rebuildQueueFromDB(){
   }
 });
 
-async function abrirCameraForcada() {
-  // 🔒 precisa HTTPS
-  if (location.protocol !== "https:" && location.hostname !== "localhost") {
-    alert("A câmera só funciona em HTTPS");
-    return null;
-  }
 
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        facingMode: { ideal: "environment" }
-      },
-      audio: false
-    });
-
-    return stream;
-
-  } catch (err) {
-    console.warn("getUserMedia falhou:", err);
-    return null;
-  }
-}
   
 renderChecklist();
 }
