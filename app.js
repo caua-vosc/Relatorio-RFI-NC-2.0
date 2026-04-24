@@ -760,24 +760,32 @@ function renderChecklist(){
     };
     s.appendChild(t);
 
-   /* ===== CAMERA + GALERIA ===== */
+/* ===== CAMERA + GALERIA (FINAL OTIMIZADO) ===== */
 
 const actions = document.createElement("div");
 actions.style.display = "flex";
 actions.style.gap = "10px";
 actions.style.marginBottom = "10px";
 
-/* CAMERA */
+/* =========================
+   📷 BOTÃO CÂMERA (FORÇADO)
+========================= */
 const btnCamera = document.createElement("button");
-btnCamera.innerText = "📷 Câmera";
+btnCamera.innerText = "📷 Tirar Foto";
 
 const inputCamera = document.createElement("input");
 inputCamera.type = "file";
-inputCamera.accept = "image/*";
-inputCamera.capture = "environment";
+
+/* 🔥 FORÇA CAMERA NO CHROME ANDROID */
+inputCamera.accept = "image/*;capture=camera";
+inputCamera.setAttribute("capture", "environment");
+
 inputCamera.style.display = "none";
 
-btnCamera.onclick = () => inputCamera.click();
+btnCamera.onclick = () => {
+  inputCamera.value = "";
+  inputCamera.click();
+};
 
 inputCamera.onchange = async (e)=>{
   const siteId = document.getElementById("siteId")?.value.trim();
@@ -795,6 +803,7 @@ inputCamera.onchange = async (e)=>{
     return;
   }
 
+  // CAPTURA META UMA VEZ
   const geo = await getGeolocation();
   const address = geo.available ? await reverseGeocode(geo.latitude, geo.longitude) : null;
   const az = await getAzimuthOnce();
@@ -815,20 +824,39 @@ inputCamera.onchange = async (e)=>{
   state[titulo].push(item);
   renderImages(s, titulo);
 
-  const meta = { siteId, section: titulo, originalName: file.name, capturedAt: ts, geolocation: geo, azimuth: az, address, userAgent: navigator.userAgent, configVersion: CONFIG_VERSION };
+  const meta = {
+    siteId,
+    section: titulo,
+    originalName: file.name,
+    capturedAt: ts,
+    geolocation: geo,
+    azimuth: az,
+    address,
+    userAgent: navigator.userAgent,
+    configVersion: CONFIG_VERSION
+  };
 
   const stamped = await stampAndCompress(file, meta);
   meta.savedName = stamped.name;
 
-  await idbPut({ id: itemId, createdAt: Date.now(), siteId, section: titulo, file: stamped, meta });
+  await idbPut({
+    id: itemId,
+    createdAt: Date.now(),
+    siteId,
+    section: titulo,
+    file: stamped,
+    meta
+  });
 
   await rebuildQueueFromDB();
   processQueue();
 };
 
-/* GALERIA */
+/* =========================
+   🖼️ BOTÃO GALERIA
+========================= */
 const btnGaleria = document.createElement("button");
-btnGaleria.innerText = "🖼️ Galeria";
+btnGaleria.innerText = "🖼️ Escolher da Galeria";
 
 const inputGaleria = document.createElement("input");
 inputGaleria.type = "file";
@@ -836,7 +864,10 @@ inputGaleria.accept = "image/*";
 inputGaleria.multiple = true;
 inputGaleria.style.display = "none";
 
-btnGaleria.onclick = () => inputGaleria.click();
+btnGaleria.onclick = () => {
+  inputGaleria.value = "";
+  inputGaleria.click();
+};
 
 inputGaleria.onchange = async (e)=>{
   const siteId = document.getElementById("siteId")?.value.trim();
@@ -850,11 +881,13 @@ inputGaleria.onchange = async (e)=>{
   if(!state[titulo]) state[titulo] = [];
   const restante = 10 - state[titulo].length;
 
+  // 🔥 CAPTURA META UMA VEZ (PERFORMANCE)
+  const geo = await getGeolocation();
+  const address = geo.available ? await reverseGeocode(geo.latitude, geo.longitude) : null;
+  const az = await getAzimuthOnce();
+  const ts = getTimestampInfo();
+
   for(const file of files.slice(0, restante)){
-    const geo = await getGeolocation();
-    const address = geo.available ? await reverseGeocode(geo.latitude, geo.longitude) : null;
-    const az = await getAzimuthOnce();
-    const ts = getTimestampInfo();
 
     const itemId = crypto.randomUUID();
 
@@ -871,18 +904,36 @@ inputGaleria.onchange = async (e)=>{
     state[titulo].push(item);
     renderImages(s, titulo);
 
-    const meta = { siteId, section: titulo, originalName: file.name, capturedAt: ts, geolocation: geo, azimuth: az, address, userAgent: navigator.userAgent, configVersion: CONFIG_VERSION };
+    const meta = {
+      siteId,
+      section: titulo,
+      originalName: file.name,
+      capturedAt: ts,
+      geolocation: geo,
+      azimuth: az,
+      address,
+      userAgent: navigator.userAgent,
+      configVersion: CONFIG_VERSION
+    };
 
     const stamped = await stampAndCompress(file, meta);
     meta.savedName = stamped.name;
 
-    await idbPut({ id: itemId, createdAt: Date.now(), siteId, section: titulo, file: stamped, meta });
+    await idbPut({
+      id: itemId,
+      createdAt: Date.now(),
+      siteId,
+      section: titulo,
+      file: stamped,
+      meta
+    });
   }
 
   await rebuildQueueFromDB();
   processQueue();
 };
 
+/* APPEND */
 actions.appendChild(btnCamera);
 actions.appendChild(btnGaleria);
 actions.appendChild(inputCamera);
